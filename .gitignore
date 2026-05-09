@@ -209,6 +209,13 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# Tagbum local state
+/data/
+/media/
+/imports/
+*.sqlite
+*.sqlite-journal
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
@@ -216,3 +223,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+Tagbum/__init__.py
+Tagbum/__main__.py

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>标签筛选</h1>
+    <p>选择一个标签查看对应资源组。</p>
+  </div>
+</section>
+
+<section class="filters">
+  <a class="filter-chip {% if not active_tag %}active{% endif %}" href="/filter">全部</a>
+  {% for name, count in tags %}
+    <a class="filter-chip {% if active_tag == name %}active{% endif %}" href="/filter?tag={{ name }}">{{ name }} <span>{{ count }}</span></a>
+  {% endfor %}
+</section>
+
+<section class="gallery">
+  {% for group in groups %}
+    {% include "_card.html" %}
+  {% else %}
+    <p class="empty">这个标签下还没有照片。</p>
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>主界面</h1>
+    <p>最近导入的资源组。Live Photo、AAE 调整文件和同 stem 资源会归到同一组。</p>
+  </div>
+</section>
+
+<section class="gallery">
+  {% for group in groups %}
+    {% include "_card.html" %}
+  {% else %}
+    <p class="empty">还没有索引照片。先运行导入命令。</p>
+  {% endfor %}
+</section>
+{% endblock %}

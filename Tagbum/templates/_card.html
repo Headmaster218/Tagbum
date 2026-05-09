@@ -1,0 +1,21 @@
+<article class="asset-card" data-group-id="{{ group.id }}">
+  <button class="preview-button" type="button" data-open-preview="{{ group.id }}">
+    {% if group.thumbnail_path %}
+      <img src="/thumbs/{{ group.id }}.jpg" alt="{{ group.display_name }}">
+    {% else %}
+      <span class="placeholder">{{ group.display_name }}</span>
+    {% endif %}
+  </button>
+  <div class="asset-meta">
+    <strong>{{ group.display_name }}</strong>
+    <span>{{ group.taken_at.strftime("%Y-%m-%d %H:%M") if group.taken_at else "未知时间" }}</span>
+    <div class="chips">
+      {% for asset_tag in group.tags %}
+        <span class="chip">{{ asset_tag.tag.name }}</span>
+      {% endfor %}
+      {% for kind in group.resources | map(attribute="kind") | unique | list %}
+        <span class="chip muted">{{ kind }}</span>
+      {% endfor %}
+    </div>
+  </div>
+</article>

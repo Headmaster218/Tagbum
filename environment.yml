@@ -1,0 +1,18 @@
+name: tagbum
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - aiofiles>=23.2
+      - click>=8.1
+      - fastapi>=0.111
+      - jinja2>=3.1
+      - pillow>=10.3
+      - pillow-heif>=0.16
+      - pydantic-settings>=2.2
+      - python-multipart>=0.0.9
+      - sqlalchemy>=2.0
+      - tqdm>=4.66
+      - uvicorn[standard]>=0.29

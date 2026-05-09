@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>打标签</h1>
+    <p>逐张处理照片。点选标签库里的标签即可添加到当前照片，新标签会自动进入标签库。</p>
+  </div>
+  <div class="tag-progress">
+    <span id="tagger-position">0</span> / {{ total_groups }}
+  </div>
+</section>
+
+<section class="tagger" data-total-groups="{{ total_groups }}">
+  <div class="tagger-stage">
+    <button class="tagger-nav" type="button" data-tagger-prev aria-label="上一张">‹</button>
+    <button class="tagger-photo" type="button" data-open-current>
+      <img id="tagger-image" alt="">
+      <span id="tagger-placeholder" class="placeholder">正在载入</span>
+    </button>
+    <button class="tagger-nav" type="button" data-tagger-next aria-label="下一张">›</button>
+  </div>
+
+  <aside class="tagger-panel">
+    <div>
+      <h2 id="tagger-title">未选择照片</h2>
+      <p id="tagger-date" class="muted-text"></p>
+      <div id="tagger-kinds" class="chips"></div>
+    </div>
+
+    <section>
+      <h3>当前标签</h3>
+      <div id="current-tags" class="chips"></div>
+    </section>
+
+    <form id="quick-tag-form" class="tag-form">
+      <input name="name" placeholder="新标签" autocomplete="off">
+      <button type="submit">添加</button>
+    </form>
+
+    <section>
+      <h3>标签库</h3>
+      <div id="tag-library" class="chips tag-library">
+        {% for name, count in tags %}
+          <button class="chip tag-option" type="button" data-tag-name="{{ name }}">{{ name }} <span>{{ count }}</span></button>
+        {% endfor %}
+      </div>
+      <p class="empty" id="tag-library-empty" {% if tags %}hidden{% endif %}>还没有标签。先给当前照片添加一个新标签。</p>
+    </section>
+  </aside>
+</section>
+{% endblock %}
