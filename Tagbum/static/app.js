@@ -39,6 +39,15 @@ const mapState = {
   refreshTimer: null,
 };
 
+const mapCellState = {
+  groups: [],
+  selectedId: null,
+  bounds: null,
+  row: 0,
+  col: 0,
+  loading: false,
+};
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -281,6 +290,21 @@ function mapBounds(map) {
   };
 }
 
+function currentMapRequestParams(extra = {}) {
+  const map = document.querySelector("[data-map]");
+  if (!map) return null;
+  const bounds = mapBounds(map);
+  return {
+    west: String(bounds.west),
+    south: String(bounds.south),
+    east: String(bounds.east),
+    north: String(bounds.north),
+    rows: String(mapState.rows),
+    cols: String(mapState.cols),
+    ...extra,
+  };
+}
+
 function renderMap() {
   const map = document.querySelector("[data-map]");
   if (!map) return;
@@ -313,7 +337,7 @@ function renderMapTiles(map) {
   tiles.innerHTML = html.join("");
 }
 
-function renderMapMarkers(map) {
+function renderMapMarkersLegacy(map) {
   const markerLayer = map.querySelector("[data-map-markers]");
   const cells = JSON.parse(markerLayer.dataset.cells || "[]");
   const width = map.clientWidth;
@@ -335,6 +359,28 @@ function renderMapMarkers(map) {
   }).join("");
 }
 
+function renderMapMarkers(map) {
+  const markerLayer = map.querySelector("[data-map-markers]");
+  const cells = JSON.parse(markerLayer.dataset.cells || "[]");
+  const width = map.clientWidth;
+  const height = map.clientHeight;
+  const center = lonLatToWorld(mapState.centerLon, mapState.centerLat, mapState.zoom);
+  markerLayer.innerHTML = cells.map((cell) => {
+    const group = cell.group;
+    const point = lonLatToWorld(group.longitude, group.latitude, mapState.zoom);
+    const left = wrappedWorldDelta(point.x, center.x, mapState.zoom) + width / 2;
+    const top = point.y - center.y + height / 2;
+    return `
+      <button class="map-bubble" type="button" data-map-cell-row="${cell.row}" data-map-cell-col="${cell.col}" style="left:${left}px;top:${top}px" title="${escapeHtml(group.display_name)} · ${cell.count} 张">
+        <span class="map-bubble-thumb">
+          ${group.thumbnail_url ? `<img src="${group.thumbnail_url}" alt="${escapeHtml(group.display_name)}">` : `<span class="placeholder">${escapeHtml(group.display_name)}</span>`}
+        </span>
+        <span class="map-bubble-count">${cell.count}</span>
+      </button>
+    `;
+  }).join("");
+}
+
 function scheduleMapRefresh(delay = 350) {
   window.clearTimeout(mapState.refreshTimer);
   mapState.refreshTimer = window.setTimeout(refreshMapPhotos, delay);
@@ -343,15 +389,7 @@ function scheduleMapRefresh(delay = 350) {
 async function refreshMapPhotos() {
   const map = document.querySelector("[data-map]");
   if (!map) return;
-  const bounds = mapBounds(map);
-  const query = new URLSearchParams({
-    west: String(bounds.west),
-    south: String(bounds.south),
-    east: String(bounds.east),
-    north: String(bounds.north),
-    rows: String(mapState.rows),
-    cols: String(mapState.cols),
-  });
+  const query = new URLSearchParams(currentMapRequestParams());
   const response = await fetch(`/api/map?${query.toString()}`);
   const cells = await response.json();
   const groups = cells.map((cell) => cell.group);
@@ -366,6 +404,183 @@ async function refreshMapPhotos() {
   }
 }
 
+function ensureMapCellPanel() {
+  let panel = document.querySelector(".map-cell-panel");
+  if (panel) return panel;
+  const map = document.querySelector("[data-map]");
+  panel = document.createElement("div");
+  panel.className = "map-cell-panel";
+  panel.innerHTML = `
+    <div class="map-cell-board">
+      <section class="map-cell-list">
+        <div class="map-cell-head">
+          <h2 data-map-cell-title>当前位置</h2>
+          <button type="button" data-map-cell-close>关闭</button>
+        </div>
+        <div class="map-cell-thumbs" data-map-cell-thumbs></div>
+      </section>
+      <section class="map-cell-detail">
+        <button class="map-cell-preview" type="button" data-map-cell-live data-map-cell-open-preview>
+          <img data-map-cell-image alt="">
+          <video data-map-cell-video muted loop playsinline hidden></video>
+          <div class="placeholder" data-map-cell-placeholder hidden>没有可预览资源</div>
+        </button>
+        <div class="map-cell-tagger">
+          <div>
+            <h3 data-map-cell-name>未选择照片</h3>
+            <p class="muted-text" data-map-cell-date></p>
+          </div>
+          <form class="inline-form" data-map-cell-quick-form>
+            <input name="name" placeholder="新增标签" autocomplete="off">
+            <button type="submit">添加</button>
+          </form>
+          <div class="chips" data-map-cell-tags></div>
+          <div>
+            <h3>标签库</h3>
+            <div class="chips tag-library" data-map-cell-library></div>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+  map.appendChild(panel);
+  panel.addEventListener("wheel", (event) => event.stopPropagation(), { passive: true });
+  panel.addEventListener("pointerdown", (event) => event.stopPropagation());
+  panel.querySelector("[data-map-cell-close]").addEventListener("click", closeMapCellPanel);
+  panel.querySelector("[data-map-cell-live]").addEventListener("mouseenter", () => setMapCellLive(true));
+  panel.querySelector("[data-map-cell-live]").addEventListener("mouseleave", () => setMapCellLive(false));
+  return panel;
+}
+
+function closeMapCellPanel() {
+  setMapCellLive(false);
+  const panel = document.querySelector(".map-cell-panel");
+  if (panel) panel.classList.remove("open");
+}
+
+function selectedMapCellGroup() {
+  return mapCellState.groups.find((group) => Number(group.id) === Number(mapCellState.selectedId)) || null;
+}
+
+async function openMapCell(row, col) {
+  const params = currentMapRequestParams({ row: String(row), col: String(col) });
+  if (!params) return;
+  mapCellState.loading = true;
+  mapCellState.row = Number(row);
+  mapCellState.col = Number(col);
+  mapCellState.bounds = params;
+  const panel = ensureMapCellPanel();
+  panel.classList.add("open");
+  panel.querySelector("[data-map-cell-title]").textContent = "加载中";
+  panel.querySelector("[data-map-cell-thumbs]").innerHTML = "";
+
+  const response = await fetch(`/api/map/cell?${new URLSearchParams(params).toString()}`);
+  const groups = await response.json();
+  groups.forEach((group) => groupCache.set(Number(group.id), group));
+  mapCellState.groups = groups;
+  mapCellState.selectedId = groups[0]?.id || null;
+  mapCellState.loading = false;
+  await renderMapCellPanel();
+}
+
+async function renderMapCellPanel() {
+  const panel = ensureMapCellPanel();
+  const groups = mapCellState.groups;
+  const selected = selectedMapCellGroup();
+  panel.querySelector("[data-map-cell-title]").textContent = `${groups.length} 张照片`;
+  panel.querySelector("[data-map-cell-thumbs]").innerHTML = groups.length
+    ? groups.map((group) => `
+      <button class="map-cell-thumb ${Number(group.id) === Number(mapCellState.selectedId) ? "active" : ""}" type="button" data-map-cell-select="${group.id}">
+        ${group.thumbnail_url ? `<img src="${group.thumbnail_url}" alt="${escapeHtml(group.display_name)}">` : `<span class="placeholder">${escapeHtml(group.display_name)}</span>`}
+      </button>
+    `).join("")
+    : `<p class="empty">这个格子里没有照片。</p>`;
+  renderMapCellSelected(selected);
+  await renderMapCellLibrary();
+}
+
+function renderMapCellSelected(group) {
+  const panel = ensureMapCellPanel();
+  const image = panel.querySelector("[data-map-cell-image]");
+  const video = panel.querySelector("[data-map-cell-video]");
+  const placeholder = panel.querySelector("[data-map-cell-placeholder]");
+  const name = panel.querySelector("[data-map-cell-name]");
+  const date = panel.querySelector("[data-map-cell-date]");
+  const tags = panel.querySelector("[data-map-cell-tags]");
+  setMapCellLive(false);
+  video.removeAttribute("src");
+
+  if (!group) {
+    image.hidden = true;
+    video.hidden = true;
+    placeholder.hidden = false;
+    name.textContent = "未选择照片";
+    date.textContent = "";
+    tags.innerHTML = "";
+    return;
+  }
+
+  const primaryImage = imageResource(group);
+  const liveVideo = videoResource(group);
+  if (primaryImage) {
+    image.src = imageUrl(primaryImage);
+    image.alt = group.display_name;
+    image.hidden = false;
+    placeholder.hidden = true;
+  } else {
+    image.hidden = true;
+    placeholder.hidden = false;
+  }
+  if (liveVideo) video.src = liveVideo.url;
+
+  name.textContent = group.display_name;
+  date.textContent = group.taken_at ? new Date(group.taken_at).toLocaleString() : "未知时间";
+  tags.innerHTML = group.tags.length
+    ? group.tags.map((tag) => `<button class="chip removable" type="button" data-map-cell-remove-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")
+    : `<span class="muted-text">暂无标签</span>`;
+}
+
+async function renderMapCellLibrary() {
+  const library = document.querySelector("[data-map-cell-library]");
+  if (!library) return;
+  const response = await fetch("/api/tags");
+  const tags = await response.json();
+  library.innerHTML = tags.length
+    ? tags.map((item) => `<button class="chip tag-option" type="button" data-map-cell-tag-name="${escapeHtml(item.name)}">${escapeHtml(item.name)} <span>${item.count}</span></button>`).join("")
+    : `<span class="muted-text">暂无标签库</span>`;
+}
+
+function setMapCellLive(show) {
+  const group = selectedMapCellGroup();
+  const panel = document.querySelector(".map-cell-panel");
+  if (!panel || !group) return;
+  const image = panel.querySelector("[data-map-cell-image]");
+  const video = panel.querySelector("[data-map-cell-video]");
+  const liveVideo = videoResource(group);
+  if (!image || !video || !liveVideo || image.hidden) return;
+  if (show) {
+    video.src = liveVideo.url;
+    video.hidden = false;
+    image.classList.add("under-live");
+    video.currentTime = 0;
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+    video.hidden = true;
+    image.classList.remove("under-live");
+  }
+}
+
+function updateMapCellGroup(updated) {
+  const index = mapCellState.groups.findIndex((group) => Number(group.id) === Number(updated.id));
+  if (index >= 0) {
+    const existing = mapCellState.groups[index];
+    if (existing.resources && !updated.resources) updated.resources = existing.resources;
+    mapCellState.groups[index] = updated;
+  }
+  groupCache.set(Number(updated.id), updated);
+}
+
 function initMap() {
   const map = document.querySelector("[data-map]");
   if (!map) return;
@@ -378,6 +593,7 @@ function initMap() {
   scheduleMapRefresh(0);
 
   map.addEventListener("wheel", (event) => {
+    if (event.target.closest(".map-cell-panel")) return;
     event.preventDefault();
     const oldZoom = mapState.zoom;
     const nextZoom = clamp(oldZoom + (event.deltaY < 0 ? 1 : -1), 2, 18);
@@ -405,6 +621,8 @@ function initMap() {
 
   map.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
+    if (document.querySelector(".map-cell-panel.open")) return;
+    if (event.target.closest("[data-map-cell-row], .map-cell-panel")) return;
     mapState.dragging = true;
     mapState.dragStartX = event.clientX;
     mapState.dragStartY = event.clientY;
@@ -841,6 +1059,58 @@ async function initTagger() {
 }
 
 document.addEventListener("click", async (event) => {
+  const mapCell = event.target.closest("[data-map-cell-row]");
+  if (mapCell) {
+    await openMapCell(mapCell.dataset.mapCellRow, mapCell.dataset.mapCellCol);
+    return;
+  }
+
+  if (event.target.closest("[data-map-cell-open-preview]")) {
+    const group = selectedMapCellGroup();
+    if (group) {
+      setMapCellLive(false);
+      await openPreview(group.id, mapCellState.groups.map((item) => Number(item.id)));
+    }
+    return;
+  }
+
+  const openMapPanel = document.querySelector(".map-cell-panel.open");
+  if (openMapPanel && event.target.closest("[data-map]") && !event.target.closest(".map-cell-board")) {
+    closeMapCellPanel();
+    return;
+  }
+
+  const mapCellSelect = event.target.closest("[data-map-cell-select]");
+  if (mapCellSelect) {
+    mapCellState.selectedId = Number(mapCellSelect.dataset.mapCellSelect);
+    renderMapCellSelected(selectedMapCellGroup());
+    document.querySelectorAll(".map-cell-thumb.active").forEach((item) => item.classList.remove("active"));
+    mapCellSelect.classList.add("active");
+    return;
+  }
+
+  const mapCellTag = event.target.closest("[data-map-cell-tag-name]");
+  if (mapCellTag) {
+    const group = selectedMapCellGroup();
+    if (!group) return;
+    const updated = await addTagToGroup(group.id, mapCellTag.dataset.mapCellTagName);
+    updateMapCellGroup(updated);
+    renderMapCellSelected(selectedMapCellGroup());
+    await renderMapCellLibrary();
+    return;
+  }
+
+  const mapCellRemoveTag = event.target.closest("[data-map-cell-remove-tag]");
+  if (mapCellRemoveTag) {
+    const group = selectedMapCellGroup();
+    if (!group) return;
+    const updated = await removeTagFromGroup(group.id, mapCellRemoveTag.dataset.mapCellRemoveTag);
+    updateMapCellGroup(updated);
+    renderMapCellSelected(selectedMapCellGroup());
+    await renderMapCellLibrary();
+    return;
+  }
+
   const mapMarker = event.target.closest("[data-map-open]");
   if (mapMarker) {
     const ids = [...document.querySelectorAll("[data-map-open]")].map((item) => Number(item.dataset.mapOpen));
@@ -937,6 +1207,22 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  const mapCellQuickForm = event.target.closest("[data-map-cell-quick-form]");
+  if (mapCellQuickForm) {
+    event.preventDefault();
+    const group = selectedMapCellGroup();
+    const input = mapCellQuickForm.elements.name;
+    const name = input.value.trim();
+    if (!group || !name) return;
+    const updated = await addTagToGroup(group.id, name);
+    updateMapCellGroup(updated);
+    mapCellQuickForm.reset();
+    renderMapCellSelected(selectedMapCellGroup());
+    await renderMapCellLibrary();
+    await refreshTagLibrary();
+    return;
+  }
+
   const combinedJumpForm = event.target.closest("[data-jump-combined-form]");
   if (combinedJumpForm) {
     event.preventDefault();
@@ -982,6 +1268,10 @@ document.addEventListener("keydown", async (event) => {
     if (event.key === "+" || event.key === "=") setPreviewScale(previewState.scale + 0.25);
     if (event.key === "-") setPreviewScale(previewState.scale - 0.25);
     if (event.key === "0") resetPreviewScale();
+    return;
+  }
+  if (document.querySelector(".map-cell-panel.open") && event.key === "Escape") {
+    closeMapCellPanel();
     return;
   }
   if (!document.querySelector(".tagger")) return;

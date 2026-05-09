@@ -176,28 +176,36 @@ def api_map(
 ) -> list[dict]:
     rows = max(1, min(rows, 20))
     cols = max(1, min(cols, 24))
-    query = _group_query().where(AssetGroup.latitude.is_not(None), AssetGroup.longitude.is_not(None))
-    bounds: tuple[float, float, float, float] | None = None
-    if None not in (west, south, east, north):
-        south_bound = max(-90.0, min(float(south), float(north)))
-        north_bound = min(90.0, max(float(south), float(north)))
-        west_raw = float(west)
-        east_raw = float(east)
-        west_bound = _normalize_longitude(west_raw)
-        east_bound = _normalize_longitude(east_raw)
-
-        query = query.where(AssetGroup.latitude >= south_bound, AssetGroup.latitude <= north_bound)
-        if abs(east_raw - west_raw) >= 360:
-            pass
-        elif west_bound <= east_bound:
-            query = query.where(AssetGroup.longitude >= west_bound, AssetGroup.longitude <= east_bound)
-        else:
-            query = query.where((AssetGroup.longitude >= west_bound) | (AssetGroup.longitude <= east_bound))
-        bounds = (west_bound, south_bound, east_bound, north_bound)
-    groups = list(session.scalars(query))
+    groups, bounds = _map_groups_for_bounds(session, west, south, east, north)
     if bounds is None:
         return [_group_payload(group) for group in groups[:50]]
     return _map_grid_payload(groups, bounds=bounds, rows=rows, cols=cols)
+
+
+@app.get("/api/map/cell")
+def api_map_cell(
+    row: int,
+    col: int,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    rows: int = 7,
+    cols: int = 12,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    rows = max(1, min(rows, 20))
+    cols = max(1, min(cols, 24))
+    row = max(0, min(rows - 1, row))
+    col = max(0, min(cols - 1, col))
+    groups, bounds = _map_groups_for_bounds(session, west, south, east, north)
+    if bounds is None:
+        return []
+    selected = [
+        group for group in groups
+        if _map_cell_position(group, bounds=bounds, rows=rows, cols=cols) == (row, col)
+    ]
+    return [_group_payload(group, include_resources=True) for group in selected]
 
 
 @app.get("/api/groups/{group_id}")
@@ -337,6 +345,34 @@ def _normalize_longitude(value: float) -> float:
     return ((value + 180) % 360) - 180
 
 
+def _map_groups_for_bounds(
+    session: Session,
+    west: float | None,
+    south: float | None,
+    east: float | None,
+    north: float | None,
+) -> tuple[list[AssetGroup], tuple[float, float, float, float] | None]:
+    query = _group_query().where(AssetGroup.latitude.is_not(None), AssetGroup.longitude.is_not(None))
+    bounds: tuple[float, float, float, float] | None = None
+    if None not in (west, south, east, north):
+        south_bound = max(-90.0, min(float(south), float(north)))
+        north_bound = min(90.0, max(float(south), float(north)))
+        west_raw = float(west)
+        east_raw = float(east)
+        west_bound = _normalize_longitude(west_raw)
+        east_bound = _normalize_longitude(east_raw)
+
+        query = query.where(AssetGroup.latitude >= south_bound, AssetGroup.latitude <= north_bound)
+        if abs(east_raw - west_raw) >= 360:
+            pass
+        elif west_bound <= east_bound:
+            query = query.where(AssetGroup.longitude >= west_bound, AssetGroup.longitude <= east_bound)
+        else:
+            query = query.where((AssetGroup.longitude >= west_bound) | (AssetGroup.longitude <= east_bound))
+        bounds = (west_bound, south_bound, east_bound, north_bound)
+    return list(session.scalars(query)), bounds
+
+
 def _longitude_span(west: float, east: float) -> float:
     span = east - west
     if span <= 0:
@@ -373,12 +409,10 @@ def _map_grid_payload(
 
     cells: dict[tuple[int, int], dict] = {}
     for group in groups:
-        if group.latitude is None or group.longitude is None:
+        position = _map_cell_position(group, bounds=bounds, rows=rows, cols=cols)
+        if position is None:
             continue
-        col = int((_longitude_offset(group.longitude, west) / lon_span) * cols)
-        row = int(((_mercator_y(group.latitude) - north_y) / y_span) * rows)
-        col = max(0, min(cols - 1, col))
-        row = max(0, min(rows - 1, row))
+        row, col = position
         key = (row, col)
         cell = cells.setdefault(
             key,
@@ -403,6 +437,26 @@ def _map_grid_payload(
             }
         )
     return payload
+
+
+def _map_cell_position(
+    group: AssetGroup,
+    bounds: tuple[float, float, float, float],
+    rows: int,
+    cols: int,
+) -> tuple[int, int] | None:
+    if group.latitude is None or group.longitude is None:
+        return None
+    west, south, east, north = bounds
+    lon_span = _longitude_span(west, east)
+    north_y = _mercator_y(north)
+    south_y = _mercator_y(south)
+    y_span = south_y - north_y
+    if lon_span <= 0 or y_span <= 0:
+        return None
+    col = int((_longitude_offset(group.longitude, west) / lon_span) * cols)
+    row = int(((_mercator_y(group.latitude) - north_y) / y_span) * rows)
+    return max(0, min(rows - 1, row)), max(0, min(cols - 1, col))
 
 
 def _map_center(session: Session) -> tuple[float, float]:
