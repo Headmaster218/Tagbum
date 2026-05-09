@@ -608,10 +608,35 @@ input {
   display: block;
 }
 
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -6px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.map-toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.map-toolbar input[type="range"] {
+  width: min(320px, 42vw);
+  padding: 0;
+}
+
+.map-toolbar span {
+  font-weight: 650;
+}
+
 .map-canvas {
   position: relative;
   width: 100%;
-  aspect-ratio: 12 / 7;
+  height: var(--map-height, 68vh);
+  min-height: 420px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -919,7 +944,7 @@ input {
   }
 
   .map-canvas {
-    aspect-ratio: 1 / 1;
+    min-height: 360px;
   }
 
   .map-cell-panel {

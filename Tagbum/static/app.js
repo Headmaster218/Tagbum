@@ -25,6 +25,7 @@ const taggerState = {
 };
 
 const dateStripState = new WeakMap();
+const MAP_DENSITY_LEVELS = [10, 20, 40, 84, 140, 200];
 
 const mapState = {
   centerLat: 30,
@@ -32,6 +33,8 @@ const mapState = {
   zoom: 10,
   rows: 7,
   cols: 12,
+  densityIndex: 3,
+  densityTarget: 84,
   dragging: false,
   dragStartX: 0,
   dragStartY: 0,
@@ -293,6 +296,7 @@ function mapBounds(map) {
 function currentMapRequestParams(extra = {}) {
   const map = document.querySelector("[data-map]");
   if (!map) return null;
+  updateMapGridFromDensity(map);
   const bounds = mapBounds(map);
   return {
     west: String(bounds.west),
@@ -303,6 +307,64 @@ function currentMapRequestParams(extra = {}) {
     cols: String(mapState.cols),
     ...extra,
   };
+}
+
+function bestMapGrid(map, target) {
+  const aspect = Math.max(0.2, Math.min(5, map.clientWidth / Math.max(1, map.clientHeight)));
+  let best = { rows: 1, cols: Math.max(1, Math.round(target)), score: Number.POSITIVE_INFINITY };
+  const maxSide = Math.max(4, Math.ceil(Math.sqrt(target) * 4));
+  for (let rows = 1; rows <= maxSide; rows += 1) {
+    for (let cols = 1; cols <= maxSide; cols += 1) {
+      const total = rows * cols;
+      const ratio = cols / rows;
+      const totalPenalty = Math.abs(total - target) / target;
+      const aspectPenalty = Math.abs(ratio - aspect) / aspect;
+      const score = totalPenalty + aspectPenalty * 0.9;
+      if (score < best.score) best = { rows, cols, score };
+    }
+  }
+  return best;
+}
+
+function updateMapGridFromDensity(map = document.querySelector("[data-map]")) {
+  if (!map) return;
+  const grid = bestMapGrid(map, mapState.densityTarget);
+  mapState.rows = grid.rows;
+  mapState.cols = grid.cols;
+}
+
+function resizeMapCanvas(map = document.querySelector("[data-map]")) {
+  if (!map) return;
+  const rect = map.getBoundingClientRect();
+  const bottomGap = window.innerWidth <= 760 ? 18 : 28;
+  const minHeight = window.innerWidth <= 760 ? 360 : 420;
+  const availableHeight = window.innerHeight - rect.top - bottomGap;
+  const height = Math.max(minHeight, availableHeight);
+  map.style.setProperty("--map-height", `${height}px`);
+}
+
+function updateMapDensityLabel() {
+  const label = document.querySelector("[data-map-density-label]");
+  if (!label) return;
+  label.textContent = `${mapState.cols}×${mapState.rows} · 约 ${mapState.densityTarget} 格`;
+}
+
+function setMapDensity(index, refresh = true) {
+  const map = document.querySelector("[data-map]");
+  mapState.densityIndex = clamp(Number(index) || 0, 0, MAP_DENSITY_LEVELS.length - 1);
+  mapState.densityTarget = MAP_DENSITY_LEVELS[mapState.densityIndex];
+  if (map) {
+    map.dataset.density = String(mapState.densityIndex);
+    updateMapGridFromDensity(map);
+  }
+  const slider = document.querySelector("[data-map-density]");
+  if (slider) slider.value = String(mapState.densityIndex);
+  localStorage.setItem("tagbum.mapDensity", String(mapState.densityIndex));
+  updateMapDensityLabel();
+  if (refresh) {
+    closeMapCellPanel();
+    scheduleMapRefresh(0);
+  }
 }
 
 function renderMap() {
@@ -587,10 +649,15 @@ function initMap() {
   mapState.centerLat = Number(map.dataset.centerLat || 30);
   mapState.centerLon = normalizeLon(Number(map.dataset.centerLon || 104));
   mapState.zoom = Number(map.dataset.zoom || 10);
-  mapState.rows = Number(map.dataset.rows || 7);
-  mapState.cols = Number(map.dataset.cols || 12);
+  const storedDensity = Number(localStorage.getItem("tagbum.mapDensity"));
+  const initialDensity = Number.isFinite(storedDensity) ? storedDensity : Number(map.dataset.density || 3);
+  resizeMapCanvas(map);
+  setMapDensity(initialDensity, false);
   renderMap();
   scheduleMapRefresh(0);
+
+  const densitySlider = document.querySelector("[data-map-density]");
+  densitySlider?.addEventListener("input", (event) => setMapDensity(event.target.value, true));
 
   map.addEventListener("wheel", (event) => {
     if (event.target.closest(".map-cell-panel")) return;
@@ -655,6 +722,10 @@ function initMap() {
   });
 
   window.addEventListener("resize", () => {
+    resizeMapCanvas(map);
+    updateMapGridFromDensity(map);
+    updateMapDensityLabel();
+    closeMapCellPanel();
     renderMap();
     scheduleMapRefresh();
   });

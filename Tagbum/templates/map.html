@@ -3,15 +3,23 @@
 <section class="page-head">
   <div>
     <h1>地图</h1>
-    <p>滚轮缩放，左键拖拽地图。当前视野按 12×7 网格聚合，每格显示一张代表图和照片数量。</p>
+    <p>滚轮缩放，左键拖拽地图。当前视野按可调密度网格聚合，每格显示一张代表图和照片数量。</p>
   </div>
   <div class="page-count">
     {{ located_count }} 组照片带有位置
   </div>
 </section>
 
+<section class="map-toolbar">
+  <label>
+    图片密度
+    <input type="range" min="0" max="5" step="1" value="3" data-map-density>
+  </label>
+  <span data-map-density-label>84 格</span>
+</section>
+
 <section class="map-workspace">
-  <div class="map-canvas" data-map data-center-lat="{{ center_lat }}" data-center-lon="{{ center_lon }}" data-zoom="10" data-rows="7" data-cols="12">
+  <div class="map-canvas" data-map data-center-lat="{{ center_lat }}" data-center-lon="{{ center_lon }}" data-zoom="10" data-density="3">
     <div class="map-tiles" data-map-tiles></div>
     <div class="map-markers" data-map-markers></div>
     <div class="map-status" data-map-count>0</div>
