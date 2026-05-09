@@ -13,7 +13,23 @@
       {% for asset_tag in group.tags %}
         <span class="chip">{{ asset_tag.tag.name }}</span>
       {% endfor %}
-      {% for kind in group.resources | map(attribute="kind") | unique | list %}
+      {% set ns = namespace(has_image=false, has_video=false, kinds=[]) %}
+      {% for resource in group.resources %}
+        {% if resource.kind == "image" %}
+          {% set ns.has_image = true %}
+        {% elif resource.kind == "video" %}
+          {% set ns.has_video = true %}
+        {% elif resource.kind not in ns.kinds %}
+          {% set ns.kinds = ns.kinds + [resource.kind] %}
+        {% endif %}
+      {% endfor %}
+      {% if ns.has_image %}
+        <span class="chip muted">image</span>
+      {% endif %}
+      {% if ns.has_video %}
+        <span class="chip muted">{{ "live" if ns.has_image else "video" }}</span>
+      {% endif %}
+      {% for kind in ns.kinds %}
         <span class="chip muted">{{ kind }}</span>
       {% endfor %}
     </div>

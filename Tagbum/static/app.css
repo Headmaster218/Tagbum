@@ -196,6 +196,12 @@ main {
   gap: 6px;
 }
 
+.tagger-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .tag-progress {
   color: var(--muted);
   font-weight: 650;
@@ -217,6 +223,7 @@ main {
 }
 
 .tagger-photo {
+  position: relative;
   display: grid;
   place-items: center;
   width: 100%;
@@ -227,10 +234,28 @@ main {
 }
 
 .tagger-photo img {
+  position: absolute;
+  inset: 0;
   display: block;
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  z-index: 1;
+}
+
+.tagger-photo video {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #111;
+  z-index: 2;
+}
+
+.tagger-photo img.under-live {
+  opacity: 0;
 }
 
 .tagger-nav {
@@ -297,17 +322,52 @@ input {
 }
 
 .modal-media {
+  position: relative;
   display: grid;
-  place-items: center;
+  grid-template-columns: 54px minmax(0, 1fr) 54px;
+  gap: 12px;
+  align-items: center;
   min-width: 0;
   padding: 28px;
 }
 
-.modal-media img,
-.modal-media video {
+.modal-view {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+  touch-action: none;
+  cursor: default;
+}
+
+.modal-view img,
+.modal-view video {
   max-width: 100%;
   max-height: calc(100vh - 56px);
   background: #111;
+}
+
+.modal-image {
+  transform-origin: center center;
+  transition: transform 120ms ease;
+  will-change: transform;
+}
+
+.modal-live {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.modal-nav {
+  width: 54px;
+  height: 84px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 32px;
 }
 
 .modal-side {
@@ -318,6 +378,32 @@ input {
 
 .modal-close {
   float: right;
+}
+
+.modal-close-floating {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.is-panning,
+.is-panning .modal-view {
+  cursor: grabbing;
+}
+
+.preview-tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 14px 0;
 }
 
 .resource-list {
@@ -347,6 +433,15 @@ input {
   .modal {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .modal-media {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    padding: 12px;
+  }
+
+  .modal-nav {
+    width: 42px;
   }
 
   .modal-side {

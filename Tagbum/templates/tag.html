@@ -3,21 +3,27 @@
 <section class="page-head">
   <div>
     <h1>打标签</h1>
-    <p>逐张处理照片。点选标签库里的标签即可添加到当前照片，新标签会自动进入标签库。</p>
+    <p>逐张处理照片。默认显示未打标签的照片，点选标签库即可添加到当前照片。</p>
   </div>
   <div class="tag-progress">
     <span id="tagger-position">0</span> / {{ total_groups }}
   </div>
 </section>
 
-<section class="tagger" data-total-groups="{{ total_groups }}">
+<section class="filters">
+  <a class="filter-chip {% if active_status == 'untagged' %}active{% endif %}" href="/tag?status=untagged">未打标签 <span>{{ untagged_count }}</span></a>
+  <a class="filter-chip {% if active_status == 'tagged' %}active{% endif %}" href="/tag?status=tagged">已打标签 <span>{{ tagged_count }}</span></a>
+</section>
+
+<section class="tagger" data-total-groups="{{ total_groups }}" data-tag-status="{{ active_status }}">
   <div class="tagger-stage">
-    <button class="tagger-nav" type="button" data-tagger-prev aria-label="上一张">‹</button>
+    <button class="tagger-nav" type="button" data-tagger-prev aria-label="上一张">&lt;</button>
     <button class="tagger-photo" type="button" data-open-current>
       <img id="tagger-image" alt="">
+      <video id="tagger-live" muted loop playsinline hidden></video>
       <span id="tagger-placeholder" class="placeholder">正在载入</span>
     </button>
-    <button class="tagger-nav" type="button" data-tagger-next aria-label="下一张">›</button>
+    <button class="tagger-nav" type="button" data-tagger-next aria-label="下一张">&gt;</button>
   </div>
 
   <aside class="tagger-panel">
@@ -31,6 +37,10 @@
       <h3>当前标签</h3>
       <div id="current-tags" class="chips"></div>
     </section>
+
+    <div class="tagger-actions">
+      <button type="button" data-copy-prev-tags>复制上一张标签</button>
+    </div>
 
     <form id="quick-tag-form" class="tag-form">
       <input name="name" placeholder="新标签" autocomplete="off">

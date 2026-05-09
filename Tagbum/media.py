@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import BytesIO
 from datetime import datetime
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from .config import settings
 register_heif_opener()
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".gif", ".tif", ".tiff"}
+WEB_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".avi", ".3gp"}
 SIDECAR_EXTENSIONS = {".aae", ".xmp", ".db"}
 RAW_EXTENSIONS = {".dng"}
@@ -70,6 +72,20 @@ def build_thumbnail(source: Path, group_id: int) -> Path | None:
             rgb = image.convert("RGB")
             rgb.save(target, "JPEG", quality=86, optimize=True)
         return target
+    except Exception:
+        return None
+
+
+def build_full_preview(source: Path) -> bytes | None:
+    if source.suffix.lower() not in IMAGE_EXTENSIONS:
+        return None
+    try:
+        with Image.open(source) as image:
+            image = ImageOps.exif_transpose(image)
+            rgb = image.convert("RGB")
+            output = BytesIO()
+            rgb.save(output, "JPEG", quality=94, optimize=True)
+            return output.getvalue()
     except Exception:
         return None
 
