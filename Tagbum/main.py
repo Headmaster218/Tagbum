@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import math
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -93,6 +94,21 @@ def filter_page(request: Request, tag: str | None = None, session: Session = Dep
     )
 
 
+@app.get("/map", response_class=HTMLResponse)
+def map_page(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+    center_lat, center_lon = _map_center(session)
+    located_count = _count_located_groups(session)
+    return templates.TemplateResponse(
+        request,
+        "map.html",
+        {
+            "center_lat": center_lat,
+            "center_lon": center_lon,
+            "located_count": located_count,
+        },
+    )
+
+
 @app.get("/api/groups")
 def api_groups(
     tag: str | None = None,
@@ -146,6 +162,42 @@ def api_dates(tag_status: str | None = None, session: Session = Depends(get_sess
     start = min(counts)
     end = max(counts)
     return {"dates": days, "min_date": start.isoformat(), "max_date": end.isoformat()}
+
+
+@app.get("/api/map")
+def api_map(
+    west: float | None = None,
+    south: float | None = None,
+    east: float | None = None,
+    north: float | None = None,
+    rows: int = 7,
+    cols: int = 12,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    rows = max(1, min(rows, 20))
+    cols = max(1, min(cols, 24))
+    query = _group_query().where(AssetGroup.latitude.is_not(None), AssetGroup.longitude.is_not(None))
+    bounds: tuple[float, float, float, float] | None = None
+    if None not in (west, south, east, north):
+        south_bound = max(-90.0, min(float(south), float(north)))
+        north_bound = min(90.0, max(float(south), float(north)))
+        west_raw = float(west)
+        east_raw = float(east)
+        west_bound = _normalize_longitude(west_raw)
+        east_bound = _normalize_longitude(east_raw)
+
+        query = query.where(AssetGroup.latitude >= south_bound, AssetGroup.latitude <= north_bound)
+        if abs(east_raw - west_raw) >= 360:
+            pass
+        elif west_bound <= east_bound:
+            query = query.where(AssetGroup.longitude >= west_bound, AssetGroup.longitude <= east_bound)
+        else:
+            query = query.where((AssetGroup.longitude >= west_bound) | (AssetGroup.longitude <= east_bound))
+        bounds = (west_bound, south_bound, east_bound, north_bound)
+    groups = list(session.scalars(query))
+    if bounds is None:
+        return [_group_payload(group) for group in groups[:50]]
+    return _map_grid_payload(groups, bounds=bounds, rows=rows, cols=cols)
 
 
 @app.get("/api/groups/{group_id}")
@@ -271,6 +323,97 @@ def _count_groups(session: Session, tag_status: str | None = None) -> int:
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
     return session.scalar(query) or 0
+
+
+def _count_located_groups(session: Session) -> int:
+    query = select(func.count(AssetGroup.id)).where(
+        AssetGroup.latitude.is_not(None),
+        AssetGroup.longitude.is_not(None),
+    )
+    return session.scalar(query) or 0
+
+
+def _normalize_longitude(value: float) -> float:
+    return ((value + 180) % 360) - 180
+
+
+def _longitude_span(west: float, east: float) -> float:
+    span = east - west
+    if span <= 0:
+        span += 360
+    return span
+
+
+def _longitude_offset(lon: float, west: float) -> float:
+    offset = _normalize_longitude(lon) - west
+    if offset < 0:
+        offset += 360
+    return offset
+
+
+def _mercator_y(lat: float) -> float:
+    clamped = max(-85.0511, min(85.0511, lat))
+    sin_lat = math.sin(math.radians(clamped))
+    return 0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)
+
+
+def _map_grid_payload(
+    groups: list[AssetGroup],
+    bounds: tuple[float, float, float, float],
+    rows: int,
+    cols: int,
+) -> list[dict]:
+    west, south, east, north = bounds
+    lon_span = _longitude_span(west, east)
+    north_y = _mercator_y(north)
+    south_y = _mercator_y(south)
+    y_span = south_y - north_y
+    if lon_span <= 0 or y_span <= 0:
+        return []
+
+    cells: dict[tuple[int, int], dict] = {}
+    for group in groups:
+        if group.latitude is None or group.longitude is None:
+            continue
+        col = int((_longitude_offset(group.longitude, west) / lon_span) * cols)
+        row = int(((_mercator_y(group.latitude) - north_y) / y_span) * rows)
+        col = max(0, min(cols - 1, col))
+        row = max(0, min(rows - 1, row))
+        key = (row, col)
+        cell = cells.setdefault(
+            key,
+            {
+                "row": row,
+                "col": col,
+                "count": 0,
+                "representative": group,
+            },
+        )
+        cell["count"] += 1
+
+    payload = []
+    for cell in sorted(cells.values(), key=lambda item: (item["row"], item["col"])):
+        group = cell["representative"]
+        payload.append(
+            {
+                "row": cell["row"],
+                "col": cell["col"],
+                "count": cell["count"],
+                "group": _group_payload(group),
+            }
+        )
+    return payload
+
+
+def _map_center(session: Session) -> tuple[float, float]:
+    group = session.scalar(
+        _group_query()
+        .where(AssetGroup.latitude.is_not(None), AssetGroup.longitude.is_not(None))
+        .limit(1)
+    )
+    if group is None or group.latitude is None or group.longitude is None:
+        return 30.0, 104.0
+    return float(group.latitude), float(group.longitude)
 
 
 def _date_counts(session: Session, tag_status: str | None = None) -> dict[date, int]:
