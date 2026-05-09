@@ -1,0 +1,24 @@
+<section class="pager">
+  <nav class="pager-pages" aria-label="分页">
+    <a class="filter-chip {% if page <= 1 %}disabled{% endif %}" href="/?page=1">第一页</a>
+    <a class="filter-chip {% if page <= 1 %}disabled{% endif %}" href="/?page={{ page - 1 if page > 1 else 1 }}">上一页</a>
+    {% for number in page_window %}
+      <a class="filter-chip {% if number == page %}active{% endif %}" href="/?page={{ number }}">{{ number }}</a>
+    {% endfor %}
+    <a class="filter-chip {% if page >= total_pages %}disabled{% endif %}" href="/?page={{ page + 1 if page < total_pages else total_pages }}">下一页</a>
+    <a class="filter-chip {% if page >= total_pages %}disabled{% endif %}" href="/?page={{ total_pages }}">最后一页</a>
+  </nav>
+
+  <div class="pager-status">第 {{ page }} / {{ total_pages }} 页</div>
+
+  <form class="pager-jump" action="/" method="get">
+    <label>页码</label>
+    <input type="number" name="page" min="1" max="{{ total_pages }}" value="{{ page }}">
+    <input type="hidden" name="jump_date" value="{{ active_date }}" data-date-strip-value>
+    <button type="submit">跳转</button>
+    <div class="date-strip-shell">
+      <div class="date-strip-info" data-date-strip-info>选择日期</div>
+      <div class="date-strip" data-date-strip data-target="home" data-selected-date="{{ active_date or current_date }}"></div>
+    </div>
+  </form>
+</section>

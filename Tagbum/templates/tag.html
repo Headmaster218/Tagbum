@@ -15,6 +15,19 @@
   <a class="filter-chip {% if active_status == 'tagged' %}active{% endif %}" href="/tag?status=tagged">已打标签 <span>{{ tagged_count }}</span></a>
 </section>
 
+<section class="toolbar tagger-jumpbar">
+  <form class="pager-jump" data-jump-combined-form>
+    <label>第 N 张</label>
+    <input type="number" name="index" min="1" max="{{ total_groups }}" value="1">
+    <input type="hidden" name="jump_date" data-date-strip-value>
+    <button type="submit">跳转</button>
+    <div class="date-strip-shell">
+      <div class="date-strip-info" data-date-strip-info>选择日期</div>
+      <div class="date-strip" data-date-strip data-target="tagger" data-tag-status="{{ active_status }}" data-selected-date="{{ current_date }}"></div>
+    </div>
+  </form>
+</section>
+
 <section class="tagger" data-total-groups="{{ total_groups }}" data-tag-status="{{ active_status }}">
   <div class="tagger-stage">
     <button class="tagger-nav" type="button" data-tagger-prev aria-label="上一张">&lt;</button>

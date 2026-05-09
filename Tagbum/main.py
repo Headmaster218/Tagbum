@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
@@ -14,6 +15,8 @@ from .media import WEB_IMAGE_EXTENSIONS, build_full_preview
 from .models import AssetGroup, AssetResource, AssetTag, Tag
 
 PACKAGE_DIR = Path(__file__).resolve().parent
+HOME_PAGE_SIZE = 72
+TAGGER_PAGE_SIZE = 80
 
 app = FastAPI(title="Tagbum")
 templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
@@ -26,10 +29,34 @@ def startup() -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
-    groups = _load_groups(session, limit=72)
+def home(
+    request: Request,
+    page: int = 1,
+    jump_date: str | None = None,
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    total_groups = _count_groups(session)
+    if jump_date:
+        offset = _resolve_offset_for_date(session, jump_date)
+        page = offset // HOME_PAGE_SIZE + 1
+    page = max(1, min(page, max(1, _total_pages(total_groups, HOME_PAGE_SIZE))))
+    offset = (page - 1) * HOME_PAGE_SIZE
+    groups = _load_groups(session, limit=HOME_PAGE_SIZE, offset=offset)
     tags = _load_tags(session)
-    return templates.TemplateResponse(request, "index.html", {"groups": groups, "tags": tags})
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "groups": groups,
+            "tags": tags,
+            "page": page,
+            "total_pages": _total_pages(total_groups, HOME_PAGE_SIZE),
+            "total_groups": total_groups,
+            "page_window": _page_window(page, _total_pages(total_groups, HOME_PAGE_SIZE)),
+            "active_date": jump_date or "",
+            "current_date": _first_group_date(groups),
+        },
+    )
 
 
 @app.get("/tag", response_class=HTMLResponse)
@@ -52,6 +79,7 @@ def tag_page(
             "tagged_count": tagged_count,
             "untagged_count": untagged_count,
             "active_status": active_status,
+            "current_date": _first_group_date(_load_groups(session, tag_status=active_status, limit=1)),
         },
     )
 
@@ -78,6 +106,46 @@ def api_groups(
         _group_payload(group, include_resources=include_resources)
         for group in _load_groups(session, tag=tag, tag_status=tag_status, limit=limit, offset=offset)
     ]
+
+
+@app.get("/api/position")
+def api_position(
+    jump_date: str | None = None,
+    index: int | None = None,
+    tag_status: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    total = _count_groups(session, tag_status=tag_status)
+    if total == 0:
+        return {"offset": 0, "total": 0}
+    if jump_date:
+        offset = _resolve_offset_for_date(session, jump_date, tag_status=tag_status)
+    elif index is not None:
+        offset = max(0, min(index - 1, total - 1))
+    else:
+        offset = 0
+    return {"offset": offset, "total": total}
+
+
+@app.get("/api/dates")
+def api_dates(tag_status: str | None = None, session: Session = Depends(get_session)) -> dict:
+    counts = _date_counts(session, tag_status=tag_status)
+    if not counts:
+        return {"dates": [], "min_date": None, "max_date": None}
+    days = []
+    months = sorted({(day.year, day.month) for day in counts})
+    for year, month in months:
+        current = date(year, month, 1)
+        if month == 12:
+            end = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end = date(year, month + 1, 1) - timedelta(days=1)
+        while current <= end:
+            days.append({"date": current.isoformat(), "count": counts.get(current, 0)})
+            current += timedelta(days=1)
+    start = min(counts)
+    end = max(counts)
+    return {"dates": days, "min_date": start.isoformat(), "max_date": end.isoformat()}
 
 
 @app.get("/api/groups/{group_id}")
@@ -203,6 +271,55 @@ def _count_groups(session: Session, tag_status: str | None = None) -> int:
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
     return session.scalar(query) or 0
+
+
+def _date_counts(session: Session, tag_status: str | None = None) -> dict[date, int]:
+    day = func.date(AssetGroup.taken_at)
+    query = select(day, func.count(AssetGroup.id)).where(AssetGroup.taken_at.is_not(None))
+    if tag_status == "tagged":
+        query = query.where(AssetGroup.tags.any())
+    elif tag_status == "untagged":
+        query = query.where(~AssetGroup.tags.any())
+    query = query.group_by(day)
+    counts: dict[date, int] = {}
+    for raw_day, count in session.execute(query):
+        if raw_day:
+            counts[date.fromisoformat(raw_day)] = count
+    return counts
+
+
+def _first_group_date(groups: list[AssetGroup]) -> str:
+    if not groups or groups[0].taken_at is None:
+        return ""
+    return groups[0].taken_at.date().isoformat()
+
+
+def _total_pages(total: int, page_size: int) -> int:
+    return max(1, (total + page_size - 1) // page_size)
+
+
+def _page_window(page: int, total_pages: int, radius: int = 2) -> list[int]:
+    start = max(1, page - radius)
+    end = min(total_pages, page + radius)
+    return list(range(start, end + 1))
+
+
+def _resolve_offset_for_date(session: Session, raw_date: str, tag_status: str | None = None) -> int:
+    try:
+        target = date.fromisoformat(raw_date)
+    except ValueError:
+        return 0
+    rows = list(session.scalars(_group_query(tag_status=tag_status).where(AssetGroup.taken_at.is_not(None))))
+    if not rows:
+        return 0
+    same_day = [index for index, group in enumerate(rows) if group.taken_at and group.taken_at.date() == target]
+    if same_day:
+        return same_day[0]
+    nearest_index, _ = min(
+        enumerate(rows),
+        key=lambda item: abs(((item[1].taken_at or datetime.min).date() - target).days),
+    )
+    return nearest_index
 
 
 def _group_payload(group: AssetGroup, include_resources: bool = False) -> dict:

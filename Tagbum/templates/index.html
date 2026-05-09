@@ -5,7 +5,12 @@
     <h1>主界面</h1>
     <p>最近导入的资源组。Live Photo、AAE 调整文件和同 stem 资源会归到同一组。</p>
   </div>
+  <div class="page-count">
+    第 {{ page }} / {{ total_pages }} 页，共 {{ total_groups }} 组
+  </div>
 </section>
+
+{% include "_pager.html" %}
 
 <section class="gallery">
   {% for group in groups %}
@@ -14,4 +19,6 @@
     <p class="empty">还没有索引照片。先运行导入命令。</p>
   {% endfor %}
 </section>
+
+{% include "_pager.html" %}
 {% endblock %}

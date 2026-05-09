@@ -18,10 +18,13 @@ const previewState = {
 const taggerState = {
   groups: [],
   index: 0,
+  baseOffset: 0,
   total: 0,
   status: "untagged",
   loading: false,
 };
+
+const dateStripState = new WeakMap();
 
 function escapeHtml(value) {
   return String(value)
@@ -29,6 +32,168 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function formatDateLabel(value) {
+  const date = new Date(`${value}T00:00:00`);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function formatMonthLabel(value) {
+  const date = new Date(`${value}T00:00:00`);
+  return `${date.getFullYear()}/${date.getMonth() + 1}`;
+}
+
+function addDays(value, days) {
+  const date = new Date(`${value}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function compactDateItems(items, bucketSize = 5) {
+  const compact = [];
+  for (let index = 0; index < items.length; index += bucketSize) {
+    const bucket = items.slice(index, index + bucketSize);
+    const start = bucket[0].date;
+    const end = bucket[bucket.length - 1].date;
+    const count = bucket.reduce((total, item) => total + item.count, 0);
+    compact.push({ date: start, end_date: end, count });
+  }
+  return compact;
+}
+
+function cellCenterOffset(strip, cell) {
+  return cell.offsetLeft + cell.offsetWidth / 2 - strip.clientWidth / 2;
+}
+
+function centerDateCell(strip, cell) {
+  const previousBehavior = strip.style.scrollBehavior;
+  strip.style.scrollBehavior = "auto";
+  strip.scrollLeft = Math.max(0, cellCenterOffset(strip, cell));
+  strip.style.scrollBehavior = previousBehavior;
+}
+
+function cellAtStripCenter(strip) {
+  const cells = [...strip.querySelectorAll("[data-date]")];
+  if (!cells.length) return null;
+  const center = strip.scrollLeft + strip.clientWidth / 2;
+  return cells.reduce((nearest, cell) => {
+    const cellCenter = cell.offsetLeft + cell.offsetWidth / 2;
+    const nearestCenter = nearest.offsetLeft + nearest.offsetWidth / 2;
+    return Math.abs(cellCenter - center) < Math.abs(nearestCenter - center) ? cell : nearest;
+  }, cells[0]);
+}
+
+function updateDateStripFromCenter(strip, updateHidden = true) {
+  const cell = cellAtStripCenter(strip);
+  if (!cell) return;
+  setDateStripSelection(strip, cell.dataset.date, cell.dataset.count, updateHidden, false);
+}
+
+function setDateStripSelection(strip, value, count = null, updateHidden = true, recenter = true) {
+  const form = strip.closest("form");
+  const hidden = form?.querySelector("[data-date-strip-value]");
+  const info = form?.querySelector("[data-date-strip-info]");
+  if (hidden && updateHidden) hidden.value = value;
+  strip.dataset.selectedDate = value;
+  strip.querySelectorAll(".date-cell.active").forEach((cell) => cell.classList.remove("active"));
+  const cell = strip.querySelector(`[data-date="${CSS.escape(value)}"]`);
+  if (cell) {
+    cell.classList.add("active");
+    if (recenter) centerDateCell(strip, cell);
+  }
+  const shownCount = count ?? cell?.dataset.count ?? 0;
+  const endDate = cell?.dataset.endDate || value;
+  if (info) info.textContent = endDate === value ? `${value} · ${shownCount} 张` : `${value} - ${endDate} · ${shownCount} 张`;
+}
+
+async function initDateStrips() {
+  const strips = [...document.querySelectorAll("[data-date-strip]")];
+  await Promise.all(strips.map(initDateStrip));
+}
+
+async function initDateStrip(strip) {
+  const params = new URLSearchParams();
+  if (strip.dataset.tagStatus) params.set("tag_status", strip.dataset.tagStatus);
+  const response = await fetch(`/api/dates?${params.toString()}`);
+  const payload = await response.json();
+  if (!payload.dates.length) {
+    strip.innerHTML = `<span class="muted-text">没有可用日期</span>`;
+    return;
+  }
+
+  const dateItems = compactDateItems(payload.dates, 5);
+  strip.innerHTML = dateItems
+    .map((item) => {
+      const hasImages = item.count > 0;
+      const day = Number(item.date.slice(8, 10));
+      const monthLabel = day === 1 ? `<span class="month-label">${formatMonthLabel(item.date)}</span>` : "";
+      return `<button class="date-cell ${hasImages ? "has-images" : "empty-day"} ${day <= 5 ? "month-start" : ""}" type="button" data-date="${item.date}" data-end-date="${item.end_date}" data-count="${item.count}" title="${item.date} - ${item.end_date} · ${item.count} 张"><span class="tick"></span>${monthLabel}</button>`;
+    })
+    .join("");
+
+  strip.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    strip.scrollLeft += event.deltaY || event.deltaX;
+    updateDateStripFromCenter(strip, true);
+  }, { passive: false });
+
+  let scrollTimer = null;
+  strip.addEventListener("scroll", () => {
+    window.clearTimeout(scrollTimer);
+    scrollTimer = window.setTimeout(() => updateDateStripFromCenter(strip, true), 40);
+  });
+
+  dateStripState.set(strip, { dragging: false, moved: false, startX: 0, scrollLeft: 0 });
+
+  strip.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const state = dateStripState.get(strip);
+    state.dragging = true;
+    state.moved = false;
+    state.startX = event.clientX;
+    state.scrollLeft = strip.scrollLeft;
+    strip.setPointerCapture(event.pointerId);
+    strip.classList.add("dragging");
+  });
+
+  strip.addEventListener("pointermove", (event) => {
+    const state = dateStripState.get(strip);
+    if (!state?.dragging) return;
+    const delta = event.clientX - state.startX;
+    if (Math.abs(delta) > 3) state.moved = true;
+    strip.scrollLeft = state.scrollLeft - delta;
+  });
+
+  strip.addEventListener("pointerup", (event) => {
+    const state = dateStripState.get(strip);
+    if (!state) return;
+    state.dragging = false;
+    strip.releasePointerCapture(event.pointerId);
+    strip.classList.remove("dragging");
+    updateDateStripFromCenter(strip, true);
+  });
+
+  strip.addEventListener("pointercancel", () => {
+    const state = dateStripState.get(strip);
+    if (!state) return;
+    state.dragging = false;
+    strip.classList.remove("dragging");
+  });
+
+  strip.addEventListener("click", (event) => {
+    const state = dateStripState.get(strip);
+    if (state?.moved) {
+      state.moved = false;
+      return;
+    }
+    const cell = event.target.closest("[data-date]");
+    if (!cell) return;
+    setDateStripSelection(strip, cell.dataset.date, cell.dataset.count, true, true);
+  });
+
+  const selected = strip.dataset.selectedDate || payload.max_date;
+  setDateStripSelection(strip, selected, null, Boolean(strip.dataset.selectedDate), true);
 }
 
 function imageResource(group) {
@@ -265,11 +430,24 @@ async function loadTaggerChunk() {
   if (taggerState.loading) return;
   taggerState.loading = true;
   const response = await fetch(
-    `/api/groups?tag_status=${encodeURIComponent(taggerState.status)}&include_resources=true&offset=${taggerState.groups.length}&limit=80`
+    `/api/groups?tag_status=${encodeURIComponent(taggerState.status)}&include_resources=true&offset=${taggerState.baseOffset + taggerState.groups.length}&limit=80`
   );
   const groups = await response.json();
   groups.forEach((group) => groupCache.set(Number(group.id), group));
   taggerState.groups.push(...groups);
+  taggerState.loading = false;
+}
+
+async function loadTaggerWindow(offset) {
+  taggerState.loading = true;
+  taggerState.baseOffset = Math.max(0, Math.min(offset, Math.max(0, taggerState.total - 1)));
+  taggerState.index = 0;
+  const response = await fetch(
+    `/api/groups?tag_status=${encodeURIComponent(taggerState.status)}&include_resources=true&offset=${taggerState.baseOffset}&limit=80`
+  );
+  const groups = await response.json();
+  groups.forEach((group) => groupCache.set(Number(group.id), group));
+  taggerState.groups = groups;
   taggerState.loading = false;
 }
 
@@ -367,19 +545,39 @@ function renderTagger() {
   title.textContent = group.display_name;
   date.textContent = group.taken_at ? new Date(group.taken_at).toLocaleString() : "未知时间";
   kinds.innerHTML = group.resource_kinds.map((kind) => `<span class="chip muted">${escapeHtml(kind)}</span>`).join("");
-  position.textContent = String(taggerState.index + 1);
+  position.textContent = String(taggerState.baseOffset + taggerState.index + 1);
   renderCurrentTags(group);
 }
 
 async function moveTagger(delta) {
   const nextIndex = taggerState.index + delta;
-  if (nextIndex < 0) return;
-  if (nextIndex >= taggerState.groups.length - 12 && taggerState.groups.length < taggerState.total) {
+  if (nextIndex < 0) {
+    if (taggerState.baseOffset <= 0) return;
+    const nextOffset = Math.max(0, taggerState.baseOffset - 80);
+    await loadTaggerWindow(nextOffset);
+    taggerState.index = Math.min(79, taggerState.groups.length - 1);
+    renderTagger();
+    return;
+  }
+  if (nextIndex >= taggerState.groups.length - 12 && taggerState.baseOffset + taggerState.groups.length < taggerState.total) {
     await loadTaggerChunk();
   }
   if (nextIndex >= taggerState.groups.length) return;
   taggerState.index = nextIndex;
   renderTagger();
+}
+
+async function jumpTaggerToOffset(offset) {
+  await loadTaggerWindow(offset);
+  renderTagger();
+}
+
+async function resolveTaggerOffset(params) {
+  const query = new URLSearchParams({ tag_status: taggerState.status });
+  if (params.index) query.set("index", params.index);
+  if (params.jumpDate) query.set("jump_date", params.jumpDate);
+  const response = await fetch(`/api/position?${query.toString()}`);
+  return response.json();
 }
 
 async function copyPreviousTags() {
@@ -498,6 +696,16 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  const combinedJumpForm = event.target.closest("[data-jump-combined-form]");
+  if (combinedJumpForm) {
+    event.preventDefault();
+    const jumpDate = combinedJumpForm.elements.jump_date.value;
+    const index = combinedJumpForm.elements.index.value;
+    const position = await resolveTaggerOffset(jumpDate ? { jumpDate } : { index });
+    await jumpTaggerToOffset(position.offset);
+    return;
+  }
+
   const quickForm = event.target.closest("#quick-tag-form");
   if (quickForm) {
     event.preventDefault();
@@ -595,3 +803,4 @@ document.addEventListener("pointerleave", (event) => {
 });
 
 initTagger();
+initDateStrips();

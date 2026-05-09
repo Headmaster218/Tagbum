@@ -162,6 +162,191 @@ main {
   margin-bottom: 18px;
 }
 
+.toolbar,
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.pager {
+  justify-content: space-between;
+  margin-top: 18px;
+}
+
+.pager:first-of-type {
+  margin-top: 0;
+}
+
+.pager-pages {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pager-status {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inline-form label,
+.page-count {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.inline-form input[type="number"] {
+  width: 88px;
+}
+
+.pager-jump {
+  display: grid;
+  grid-template-columns: auto 88px auto minmax(280px, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: min(100%, 640px);
+  flex: 1 1 520px;
+}
+
+.pager-jump label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pager-jump input[type="number"] {
+  width: 88px;
+}
+
+.date-strip-shell {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  position: relative;
+}
+
+.date-strip-info {
+  justify-self: center;
+  color: #b52d2d;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.date-strip {
+  display: flex;
+  gap: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 22px 50% 8px;
+  scrollbar-width: thin;
+  scroll-behavior: auto;
+  cursor: grab;
+  user-select: none;
+}
+
+.date-strip.dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
+}
+
+.date-strip-shell::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 2px;
+  height: 52px;
+  background: #d12b2b;
+  border-radius: 999px;
+  transform: translateX(-1px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.date-cell {
+  flex: 0 0 auto;
+  position: relative;
+  width: 5px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.date-cell.has-images {
+  background: transparent;
+  color: #16466b;
+}
+
+.date-cell.empty-day {
+  background: transparent;
+  color: var(--muted);
+}
+
+.date-cell.active {
+  background: transparent;
+  color: #b52d2d;
+}
+
+.date-cell .tick {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 2px;
+  height: 16px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #cfc8bc;
+  transform: translateX(-1px);
+}
+
+.date-cell.has-images .tick {
+  background: #2c7fbd;
+  border-color: #2c7fbd;
+}
+
+.date-cell.month-start .tick {
+  width: 3px;
+  height: 28px;
+  background: currentColor;
+  border-color: currentColor;
+}
+
+.date-cell.active .tick {
+  background: #d12b2b;
+  border-color: #d12b2b;
+}
+
+.month-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  transform: translateX(-2px);
+  color: currentColor;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.filter-chip.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .chip,
 .filter-chip {
   display: inline-flex;
@@ -459,5 +644,13 @@ input {
 
   .tagger-photo {
     height: 58vh;
+  }
+
+  .pager-jump {
+    grid-template-columns: auto 88px auto;
+  }
+
+  .date-strip-shell {
+    grid-column: 1 / -1;
   }
 }
