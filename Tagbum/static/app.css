@@ -365,6 +365,39 @@ main {
   color: var(--muted);
 }
 
+.chip.resource-kind-badge {
+  justify-content: center;
+  min-width: 26px;
+  padding: 4px 7px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.chip.resource-kind-badge.kind-image {
+  background: #e3f1ff;
+  color: #0f4b8a;
+}
+
+.chip.resource-kind-badge.kind-live {
+  background: #e6f7ea;
+  color: #17603a;
+}
+
+.chip.resource-kind-badge.kind-video {
+  background: #ffe9de;
+  color: #a34b17;
+}
+
+.chip.resource-kind-badge.kind-edited {
+  background: #fff1c7;
+  color: #8a6410;
+}
+
+.chip.resource-kind-badge.kind-generic {
+  background: #eee9df;
+  color: var(--muted);
+}
+
 .chip.removable {
   border-color: transparent;
 }
@@ -600,6 +633,22 @@ textarea {
   gap: 6px;
   flex-wrap: wrap;
   margin: 14px 0;
+}
+
+.preview-tools a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.preview-tools a:hover {
+  border-color: var(--accent);
 }
 
 .resource-list {

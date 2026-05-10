@@ -270,6 +270,27 @@ function imageUrl(resource) {
   return resource?.preview_url || resource?.url;
 }
 
+function downloadResource(group) {
+  return imageResource(group) || videoResource(group) || group.resources?.[0] || null;
+}
+
+function kindBadgeMeta(kind) {
+  const mapping = {
+    image: { letter: "I", label: "Image", className: "kind-image" },
+    live: { letter: "L", label: "Live", className: "kind-live" },
+    video: { letter: "V", label: "Video", className: "kind-video" },
+    edited: { letter: "E", label: "Edited", className: "kind-edited" },
+  };
+  return mapping[kind] || { letter: String(kind || "?").slice(0, 1).toUpperCase(), label: kind, className: "kind-generic" };
+}
+
+function kindBadgesHtml(kinds) {
+  return (kinds || []).map((kind) => {
+    const meta = kindBadgeMeta(kind);
+    return `<span class="chip resource-kind-badge ${meta.className}" title="${escapeHtml(meta.label)}">${escapeHtml(meta.letter)}</span>`;
+  }).join("");
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -868,6 +889,8 @@ function ensureModal() {
         <button type="button" data-zoom-out>缩小</button>
         <button type="button" data-zoom-reset>原始</button>
         <button type="button" data-zoom-in>放大</button>
+        <button type="button" data-preview-center>居中</button>
+        <a class="preview-download" data-preview-download href="#" download>下载</a>
       </div>
       <p class="muted-text live-hint" hidden>按住图片播放 Live</p>
       <div class="chips modal-tags"></div>
@@ -914,6 +937,12 @@ function resetPreviewScale() {
   setPreviewScale(1);
 }
 
+function centerPreview() {
+  previewState.panX = 0;
+  previewState.panY = 0;
+  applyPreviewTransform();
+}
+
 function renderModalGroup(group) {
   const modal = ensureModal();
   const image = modal.querySelector(".modal-image");
@@ -923,8 +952,10 @@ function renderModalGroup(group) {
   const tags = modal.querySelector(".modal-tags");
   const resources = modal.querySelector(".resource-list");
   const hint = modal.querySelector(".live-hint");
+  const download = modal.querySelector("[data-preview-download]");
   const primaryImage = imageResource(group);
   const liveVideo = videoResource(group);
+  const primaryDownload = downloadResource(group);
 
   stopModalLive();
   resetPreviewScale();
@@ -969,8 +1000,17 @@ function renderModalGroup(group) {
 
   title.textContent = group.display_name;
   tags.innerHTML = group.tags.map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("");
+  if (download && primaryDownload) {
+    download.href = primaryDownload.url;
+    download.download = primaryDownload.filename || "";
+    download.hidden = false;
+  } else if (download) {
+    download.removeAttribute("href");
+    download.download = "";
+    download.hidden = true;
+  }
   resources.innerHTML = group.resources
-    .map((item) => `<a href="${item.url}" target="_blank">${escapeHtml(item.filename)}<br>${escapeHtml(item.kind)} ${escapeHtml(item.extension)}</a>`)
+    .map((item) => `<a href="${item.url}" download="${escapeHtml(item.filename || "")}">${escapeHtml(item.filename)}<br>${escapeHtml(kindBadgeMeta(item.kind).label)} ${escapeHtml(item.extension)}</a>`)
     .join("");
 }
 
@@ -1165,7 +1205,7 @@ function renderTagger() {
 
   title.textContent = group.display_name;
   date.textContent = group.taken_at ? new Date(group.taken_at).toLocaleString() : "未知时间";
-  kinds.innerHTML = group.resource_kinds.map((kind) => `<span class="chip muted">${escapeHtml(kind)}</span>`).join("");
+  kinds.innerHTML = kindBadgesHtml(group.resource_kinds);
   position.textContent = String(taggerState.baseOffset + taggerState.index + 1);
   renderCurrentTags(group);
 }
@@ -1406,6 +1446,11 @@ document.addEventListener("click", async (event) => {
 
   if (event.target.closest("[data-zoom-reset]")) {
     resetPreviewScale();
+    return;
+  }
+
+  if (event.target.closest("[data-preview-center]")) {
+    centerPreview();
     return;
   }
 

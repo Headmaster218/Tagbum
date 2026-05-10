@@ -8,29 +8,34 @@
   </button>
   <div class="asset-meta">
     <strong>{{ group.display_name }}</strong>
-    <span>{{ group.taken_at.strftime("%Y-%m-%d %H:%M") if group.taken_at else "未知时间" }}</span>
+    <span>{{ group.effective_taken_at.strftime("%Y-%m-%d %H:%M") if group.effective_taken_at else "未知时间" }}</span>
     <div class="chips">
       {% for asset_tag in group.tags %}
         <span class="chip">{{ asset_tag.tag.name }}</span>
       {% endfor %}
-      {% set ns = namespace(has_image=false, has_video=false, kinds=[]) %}
+      {% set ns = namespace(has_image=false, has_video=false, has_edited=false, kinds=[]) %}
       {% for resource in group.resources %}
         {% if resource.kind == "image" %}
           {% set ns.has_image = true %}
         {% elif resource.kind == "video" %}
           {% set ns.has_video = true %}
+        {% elif resource.kind == "sidecar" and resource.extension == ".aae" %}
+          {% set ns.has_edited = true %}
         {% elif resource.kind not in ns.kinds %}
           {% set ns.kinds = ns.kinds + [resource.kind] %}
         {% endif %}
       {% endfor %}
       {% if ns.has_image %}
-        <span class="chip muted">image</span>
+        <span class="chip resource-kind-badge kind-image" title="Image">I</span>
       {% endif %}
       {% if ns.has_video %}
-        <span class="chip muted">{{ "live" if ns.has_image else "video" }}</span>
+        <span class="chip resource-kind-badge {{ 'kind-live' if ns.has_image else 'kind-video' }}" title="{{ 'Live' if ns.has_image else 'Video' }}">{{ "L" if ns.has_image else "V" }}</span>
+      {% endif %}
+      {% if ns.has_edited %}
+        <span class="chip resource-kind-badge kind-edited" title="Edited">E</span>
       {% endif %}
       {% for kind in ns.kinds %}
-        <span class="chip muted">{{ kind }}</span>
+        <span class="chip resource-kind-badge kind-generic" title="{{ kind|capitalize }}">{{ kind[:1]|upper }}</span>
       {% endfor %}
     </div>
   </div>

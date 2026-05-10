@@ -736,7 +736,29 @@ def _profile_payload(profile) -> dict:
     }
 
 
+def _fallback_taken_at_expr():
+    return select(func.min(AssetResource.mtime)).where(AssetResource.group_id == AssetGroup.id).scalar_subquery()
+
+
+def _effective_taken_at_expr():
+    return func.coalesce(AssetGroup.taken_at, _fallback_taken_at_expr())
+
+
+def _group_taken_at(group: AssetGroup) -> datetime | None:
+    if group.taken_at is not None:
+        return group.taken_at
+    resource_times = [resource.mtime for resource in group.resources if resource.mtime is not None]
+    return min(resource_times) if resource_times else None
+
+
+def _decorate_groups(groups: list[AssetGroup]) -> list[AssetGroup]:
+    for group in groups:
+        group.effective_taken_at = _group_taken_at(group)
+    return groups
+
+
 def _group_query(tag: str | None = None, tag_status: str | None = None) -> Select[tuple[AssetGroup]]:
+    effective_taken_at = _effective_taken_at_expr()
     query = select(AssetGroup).options(
         selectinload(AssetGroup.resources), selectinload(AssetGroup.tags).selectinload(AssetTag.tag)
     )
@@ -746,7 +768,7 @@ def _group_query(tag: str | None = None, tag_status: str | None = None) -> Selec
         query = query.where(AssetGroup.tags.any())
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
-    return query.order_by(AssetGroup.taken_at.desc().nullslast(), AssetGroup.id.desc())
+    return query.order_by(effective_taken_at.desc().nullslast(), AssetGroup.id.desc())
 
 
 def _load_groups(
@@ -756,13 +778,14 @@ def _load_groups(
     limit: int = 144,
     offset: int = 0,
 ) -> list[AssetGroup]:
-    return list(session.scalars(_group_query(tag, tag_status).offset(offset).limit(limit)))
+    return _decorate_groups(list(session.scalars(_group_query(tag, tag_status).offset(offset).limit(limit))))
 
 
 def _get_group(session: Session, group_id: int) -> AssetGroup:
     group = session.scalar(_group_query().where(AssetGroup.id == group_id))
     if group is None:
         raise HTTPException(status_code=404, detail="Group not found")
+    _decorate_groups([group])
     return group
 
 
@@ -918,8 +941,9 @@ def _map_center(session: Session) -> tuple[float, float]:
 
 
 def _date_counts(session: Session, tag_status: str | None = None) -> dict[date, int]:
-    day = func.date(AssetGroup.taken_at)
-    query = select(day, func.count(AssetGroup.id)).where(AssetGroup.taken_at.is_not(None))
+    effective_taken_at = _effective_taken_at_expr()
+    day = func.date(effective_taken_at)
+    query = select(day, func.count(AssetGroup.id)).where(effective_taken_at.is_not(None))
     if tag_status == "tagged":
         query = query.where(AssetGroup.tags.any())
     elif tag_status == "untagged":
@@ -933,9 +957,12 @@ def _date_counts(session: Session, tag_status: str | None = None) -> dict[date, 
 
 
 def _first_group_date(groups: list[AssetGroup]) -> str:
-    if not groups or groups[0].taken_at is None:
+    if not groups:
         return ""
-    return groups[0].taken_at.date().isoformat()
+    taken_at = _group_taken_at(groups[0])
+    if taken_at is None:
+        return ""
+    return taken_at.date().isoformat()
 
 
 def _total_pages(total: int, page_size: int) -> int:
@@ -953,25 +980,27 @@ def _resolve_offset_for_date(session: Session, raw_date: str, tag_status: str | 
         target = date.fromisoformat(raw_date)
     except ValueError:
         return 0
-    rows = list(session.scalars(_group_query(tag_status=tag_status).where(AssetGroup.taken_at.is_not(None))))
+    effective_taken_at = _effective_taken_at_expr()
+    rows = _decorate_groups(list(session.scalars(_group_query(tag_status=tag_status).where(effective_taken_at.is_not(None)))))
     if not rows:
         return 0
-    same_day = [index for index, group in enumerate(rows) if group.taken_at and group.taken_at.date() == target]
+    same_day = [index for index, group in enumerate(rows) if group.effective_taken_at and group.effective_taken_at.date() == target]
     if same_day:
         return same_day[0]
     nearest_index, _ = min(
         enumerate(rows),
-        key=lambda item: abs(((item[1].taken_at or datetime.min).date() - target).days),
+        key=lambda item: abs(((item[1].effective_taken_at or datetime.min).date() - target).days),
     )
     return nearest_index
 
 
 def _group_payload(group: AssetGroup, include_resources: bool = False) -> dict:
-    resource_kinds = sorted({_payload_kind(resource, group) for resource in group.resources})
+    resource_kinds = sorted({_payload_kind(resource, group) for resource in group.resources}, key=_kind_sort_key)
+    taken_at = _group_taken_at(group)
     payload = {
         "id": group.id,
         "display_name": group.display_name,
-        "taken_at": group.taken_at.isoformat() if group.taken_at else None,
+        "taken_at": taken_at.isoformat() if taken_at else None,
         "latitude": group.latitude,
         "longitude": group.longitude,
         "thumbnail_url": f"/thumbs/{group.id}.jpg" if group.thumbnail_path else None,
@@ -998,7 +1027,14 @@ def _payload_kind(resource: AssetResource, group: AssetGroup) -> str:
     has_image = any(item.kind == "image" for item in group.resources)
     if resource.kind == "video" and has_image:
         return "live"
+    if resource.kind == "sidecar" and resource.extension == ".aae":
+        return "edited"
     return resource.kind
+
+
+def _kind_sort_key(kind: str) -> tuple[int, str]:
+    order = {"image": 0, "live": 1, "video": 2, "edited": 3, "raw": 4, "sidecar": 5, "other": 6}
+    return order.get(kind, 99), kind
 
 
 def _preview_url(resource: AssetResource) -> str:
