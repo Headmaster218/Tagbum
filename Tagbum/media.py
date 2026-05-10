@@ -59,6 +59,14 @@ def read_image_metadata(path: Path) -> tuple[int | None, int | None, datetime | 
 
 
 def build_thumbnail(source: Path, group_id: int) -> Path | None:
+    if source.suffix.lower() in IMAGE_EXTENSIONS:
+        return build_image_thumbnail(source, group_id)
+    if source.suffix.lower() in VIDEO_EXTENSIONS:
+        return build_video_thumbnail(source, group_id)
+    return None
+
+
+def build_image_thumbnail(source: Path, group_id: int) -> Path | None:
     if source.suffix.lower() not in IMAGE_EXTENSIONS:
         return None
     target = settings.thumbnail_dir / f"{group_id}.jpg"
@@ -71,6 +79,44 @@ def build_thumbnail(source: Path, group_id: int) -> Path | None:
             image.thumbnail((settings.thumbnail_size, settings.thumbnail_size))
             rgb = image.convert("RGB")
             rgb.save(target, "JPEG", quality=86, optimize=True)
+        return target
+    except Exception:
+        return None
+
+
+def build_video_thumbnail(source: Path, group_id: int) -> Path | None:
+    if source.suffix.lower() not in VIDEO_EXTENSIONS:
+        return None
+    target = settings.thumbnail_dir / f"{group_id}.jpg"
+    if target.exists():
+        return target
+    try:
+        import cv2
+
+        settings.thumbnail_dir.mkdir(parents=True, exist_ok=True)
+        capture = cv2.VideoCapture(str(source))
+        if not capture.isOpened():
+            return None
+        frame = None
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        fps = capture.get(cv2.CAP_PROP_FPS) or 0
+        positions = [0]
+        if fps > 0:
+            positions.extend([int(fps), int(fps * 2)])
+        if frame_count > 0:
+            positions.append(frame_count // 2)
+        for position in positions:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, max(0, position))
+            ok, candidate = capture.read()
+            if ok and candidate is not None:
+                frame = candidate
+                break
+        capture.release()
+        if frame is None:
+            return None
+        image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        image.thumbnail((settings.thumbnail_size, settings.thumbnail_size))
+        image.save(target, "JPEG", quality=86, optimize=True)
         return target
     except Exception:
         return None

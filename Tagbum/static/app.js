@@ -941,8 +941,10 @@ function renderModalGroup(group) {
     live.controls = false;
     live.muted = true;
     hint.hidden = false;
-  } else {
+  } else if (!liveVideo) {
     live.removeAttribute("src");
+    hint.hidden = true;
+  } else {
     hint.hidden = true;
   }
 
@@ -1525,6 +1527,7 @@ document.addEventListener("pointerdown", (event) => {
   }
   if (event.button !== 0) return;
   if (!event.target.closest("[data-live-hold]")) return;
+  if (!previewState.group || !imageResource(previewState.group) || !videoResource(previewState.group)) return;
   previewState.holdTimer = window.setTimeout(startModalLive, 260);
 });
 
@@ -1543,9 +1546,10 @@ document.addEventListener("pointermove", (event) => {
 
 function stopPreviewPointerActions() {
   const wasDragging = previewState.dragging;
+  const wasHoldingLive = previewState.holdTimer !== null;
   previewState.dragging = false;
   document.body.classList.remove("is-panning");
-  stopModalLive();
+  if (wasHoldingLive) stopModalLive();
   if (wasDragging) {
     previewState.suppressModalViewClick = true;
     window.setTimeout(() => {

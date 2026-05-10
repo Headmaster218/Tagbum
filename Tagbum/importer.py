@@ -131,7 +131,7 @@ def import_folder(
                 existing.height = record["height"]
                 updated_resources += 1
 
-            if group.thumbnail_path is None and kind == "image":
+            if group.thumbnail_path is None and kind in {"image", "video"}:
                 session.flush()
                 target = thumbnail_target(group.id)
                 group.thumbnail_path = str(target)
