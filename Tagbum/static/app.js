@@ -105,6 +105,22 @@ function compactDateItems(items, bucketSize = 5) {
   return compact;
 }
 
+function resolveDateBucket(items, value) {
+  if (!items.length) return null;
+  if (!value) return items[items.length - 1];
+  const exact = items.find((item) => item.date === value);
+  if (exact) return exact;
+  const containing = items.find((item) => item.date <= value && value <= item.end_date);
+  if (containing) return containing;
+  const target = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return items[items.length - 1];
+  return items.reduce((nearest, item) => {
+    const itemTime = new Date(`${item.date}T00:00:00`).getTime();
+    const nearestTime = new Date(`${nearest.date}T00:00:00`).getTime();
+    return Math.abs(itemTime - target.getTime()) < Math.abs(nearestTime - target.getTime()) ? item : nearest;
+  }, items[0]);
+}
+
 function cellCenterOffset(strip, cell) {
   return cell.offsetLeft + cell.offsetWidth / 2 - strip.clientWidth / 2;
 }
@@ -236,7 +252,10 @@ async function initDateStrip(strip) {
   });
 
   const selected = strip.dataset.selectedDate || payload.max_date;
-  setDateStripSelection(strip, selected, null, Boolean(strip.dataset.selectedDate), true);
+  const selectedBucket = resolveDateBucket(dateItems, selected);
+  if (selectedBucket) {
+    setDateStripSelection(strip, selectedBucket.date, selectedBucket.count, Boolean(strip.dataset.selectedDate), true);
+  }
 }
 
 function imageResource(group) {
