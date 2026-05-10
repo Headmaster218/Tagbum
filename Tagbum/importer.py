@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,9 +18,12 @@ def import_folder(
     session: Session,
     limit: int | None = None,
     commit_every: int = 250,
+    progress_callback: Callable[[dict], None] | None = None,
 ) -> dict[str, int]:
     init_db()
     source_root = source_root.resolve()
+    if progress_callback:
+        progress_callback({"phase": "discovering", "source": str(source_root), "current": 0, "total": 0})
     files = [
         path
         for path in source_root.rglob("*")
@@ -27,6 +31,8 @@ def import_folder(
     ]
     if limit:
         files = files[:limit]
+    if progress_callback:
+        progress_callback({"phase": "importing", "source": str(source_root), "current": 0, "total": len(files)})
 
     created_groups = 0
     created_resources = 0
@@ -34,7 +40,8 @@ def import_folder(
 
     skipped_resources = 0
 
-    for index, path in enumerate(tqdm(files, desc="Importing media", unit="file"), start=1):
+    iterator = files if progress_callback else tqdm(files, desc="Importing media", unit="file")
+    for index, path in enumerate(iterator, start=1):
         stat = path.stat()
         key = group_key(source_root, path)
         group = session.scalar(select(AssetGroup).where(AssetGroup.group_key == key))
@@ -102,10 +109,15 @@ def import_folder(
             if thumb:
                 group.thumbnail_path = str(thumb)
 
+        if progress_callback and (index % 25 == 0 or index == len(files)):
+            progress_callback({"phase": "importing", "source": str(source_root), "current": index, "total": len(files)})
+
         if index % commit_every == 0:
             session.commit()
 
     session.commit()
+    if progress_callback:
+        progress_callback({"phase": "done", "source": str(source_root), "current": len(files), "total": len(files)})
     return {
         "files_seen": len(files),
         "groups_created": created_groups,

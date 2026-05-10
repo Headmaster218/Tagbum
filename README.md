@@ -32,10 +32,17 @@ conda activate tagbum
 
 ## Import photos
 
-The importer indexes files and writes local state under `data/`. Source files are not changed.
+The importer indexes files and writes local state under the active database profile. Source files are not changed.
 
 ```powershell
 python -m Tagbum import Z:\Backup\DCIM
+```
+
+You can also configure one or more read-only album folders and import the active profile without passing a source each time:
+
+```powershell
+python -m Tagbum profile add default --database data\tagbum.sqlite --album Z:\Backup\DCIM --use
+python -m Tagbum import
 ```
 
 For a quick smoke test:
@@ -73,6 +80,13 @@ Manual startup:
 python -m Tagbum web --host 127.0.0.1 --port 8000
 ```
 
+To start a named database profile:
+
+```powershell
+python -m Tagbum web --profile default --host 127.0.0.1 --port 8000
+powershell -ExecutionPolicy Bypass -File .\scripts\start_tagbum.ps1 -Profile default
+```
+
 During development, add `--reload` if you want the server to restart after source edits.
 
 Open:
@@ -81,10 +95,33 @@ Open:
 - `http://127.0.0.1:8000/tag` for manual tagging.
 - `http://127.0.0.1:8000/filter` for tag filtering.
 
+## Profiles and paths
+
+Tagbum reads local profiles from `tagbum.config.json` in the repository root. This file is ignored by git because it contains machine-specific paths. See `tagbum.config.example.json` for a template.
+
+A profile has:
+
+- `database`: the SQLite database path for tags, metadata, and grouping.
+- `albums`: one or more read-only source folders.
+- `thumbnail_dir`: optional generated thumbnail folder. If omitted, Tagbum uses a folder next to the database.
+
+Useful commands:
+
+```powershell
+python -m Tagbum profile list
+python -m Tagbum profile add family --database D:\TagbumDB\family.sqlite --album Z:\Backup\DCIM --use
+python -m Tagbum profile add-album D:\Photos\Camera2 --profile family
+python -m Tagbum profile use family
+python -m Tagbum profile move-db family D:\TagbumDB\family-archive.sqlite
+```
+
+Switching profiles changes which database Tagbum opens; it does not delete or rewrite other databases. Moving a database updates the profile path and moves the SQLite file. Album folders remain read-only.
+
 ## Local state
 
 These paths are intentionally ignored by git:
 
 - `data/` for SQLite and generated thumbnails.
 - `media/` and `imports/` for future managed assets or import manifests.
+- `tagbum.config.json` for local profile paths.
 - `*.sqlite` and SQLite journal files.

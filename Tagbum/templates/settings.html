@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>设置</h1>
+    <p>管理相册来源、数据库位置和当前使用的数据库 profile。</p>
+  </div>
+  <div class="page-count">
+    当前：{{ active_profile }}
+  </div>
+</section>
+
+<section class="settings-summary">
+  <div>
+    <strong>配置文件</strong>
+    <span>{{ config_path }}</span>
+  </div>
+  <form method="post" action="/settings/scan">
+    <button type="submit">立即检测相册变化</button>
+  </form>
+</section>
+
+{% if not database_ready %}
+<section class="settings-warning">
+  <strong>当前没有可用数据库</strong>
+  <span>Tagbum 只有 SQLite 是数据库；缩略图目录只是可重新生成的缓存。你可以新建/切换 profile，或为当前 profile 创建一个空数据库后再扫描相册导入。</span>
+  <div class="settings-actions">
+    <form method="post" action="/settings/init-db">
+      <button type="submit">创建空数据库</button>
+    </form>
+    <form method="post" action="/settings/scan">
+      <button type="submit">扫描相册并导入</button>
+    </form>
+  </div>
+</section>
+{% endif %}
+
+<section class="scan-status" data-scan-status>
+  <strong data-scan-message>{{ scan_status.message }}</strong>
+  {% if scan_status.running %}
+    <span data-scan-detail>正在扫描 {{ scan_status.profile }}</span>
+  {% elif scan_status.finished_at %}
+    <span data-scan-detail>完成时间：{{ scan_status.finished_at }}</span>
+  {% else %}
+    <span data-scan-detail></span>
+  {% endif %}
+  <div class="scan-progress">
+    <div data-scan-progress style="width: {{ scan_status.percent }}%"></div>
+  </div>
+  <span class="scan-progress-label" data-scan-progress-label>
+    {{ scan_status.current }} / {{ scan_status.total }} · {{ scan_status.percent }}%
+  </span>
+  {% if scan_status.stats %}
+    <div class="scan-stats" data-scan-stats>
+      {% for item in scan_status.stats %}
+        <article>
+          <strong>{{ item.album }}</strong>
+          {% if item.error %}
+            <span>{{ item.error }}</span>
+          {% else %}
+            <span>分组 {{ item.groups_seen }}，资源新增 {{ item.resources_created }}，更新 {{ item.resources_updated }}，跳过 {{ item.resources_skipped }}</span>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="scan-stats" data-scan-stats></div>
+  {% endif %}
+</section>
+
+<section class="settings-summary new-profile-panel">
+  <form method="post" action="/settings/profiles" class="new-profile-form">
+    <label>
+      名称
+      <input name="name" placeholder="family" required data-profile-name>
+    </label>
+    <label>
+      数据库位置
+      <input name="database" placeholder="data\family.sqlite" data-profile-database>
+    </label>
+    <label>
+      相册目录（每行一个，只读）
+      <textarea name="albums" rows="3" placeholder="Z:\Backup\DCIM" data-profile-albums></textarea>
+    </label>
+    <button type="button" data-pick-album-folder>选择相册</button>
+    <label class="checkbox-label">
+      <input type="checkbox" name="activate" value="true">
+      创建后立即切换
+    </label>
+    <button type="submit">新增 profile</button>
+  </form>
+</section>
+
+{% if not profiles %}
+  <section class="empty-state">
+    <h2>还没有可用数据库</h2>
+    <p>先在上方新增一个 profile，填写 SQLite 数据库位置和相册目录，然后导入或点击“立即检测相册变化”。</p>
+  </section>
+{% endif %}
+
+<section class="profile-grid">
+  {% for profile in profiles %}
+    <article class="profile-card {% if profile.active %}active{% endif %}">
+      <header>
+        <div>
+          <h2>{{ profile.name }}</h2>
+          {% if profile.active %}<span class="chip">当前使用</span>{% endif %}
+        </div>
+        {% if not profile.active %}
+          <form method="post" action="/settings/profiles/{{ profile.name }}/use">
+            <button type="submit">切换到此数据库</button>
+          </form>
+        {% endif %}
+      </header>
+
+      <div class="path-block">
+        <strong>数据库</strong>
+        <span class="{% if not profile.database_exists %}missing-path{% endif %}">{{ profile.database }}</span>
+      </div>
+
+      <form class="move-db-form" method="post" action="/settings/profiles/{{ profile.name }}/move-db">
+        <label>
+          移动数据库到
+          <input name="destination" value="{{ profile.database }}" required>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" name="overwrite" value="true">
+          覆盖已有文件
+        </label>
+        <button type="submit">移动数据库</button>
+      </form>
+
+      <form class="delete-db-form" method="post" action="/settings/profiles/{{ profile.name }}/delete-db">
+        <label>
+          删除数据库确认（输入 {{ profile.name }}）
+          <input name="confirm_name" placeholder="{{ profile.name }}" required>
+        </label>
+        <button type="submit">删除数据库文件</button>
+      </form>
+
+      <div class="path-block">
+        <strong>缩略图目录</strong>
+        <span>{{ profile.thumbnail_dir }}</span>
+      </div>
+
+      <div class="path-block">
+        <strong>相册目录（只读）</strong>
+        {% if profile.albums %}
+          {% for album in profile.albums %}
+            <span class="{% if not album.exists %}missing-path{% endif %}">{{ album.path }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="muted-text">未配置相册目录</span>
+        {% endif %}
+      </div>
+    </article>
+  {% endfor %}
+</section>
+{% endblock %}

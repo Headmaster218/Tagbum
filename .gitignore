@@ -213,6 +213,7 @@ tempCodeRunnerFile.py
 /data/
 /media/
 /imports/
+/tagbum.config.json
 *.sqlite
 *.sqlite-journal
 

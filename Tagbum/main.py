@@ -3,21 +3,38 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 import math
 from pathlib import Path
+import shutil
+from threading import Lock, Thread
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import Select, delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
-from .db import get_session, init_db
+from .config import NoActiveProfile, settings
+from .db import SessionLocal, configure_database, dispose_database, get_session, init_db
+from .importer import import_folder
 from .media import WEB_IMAGE_EXTENSIONS, build_full_preview
 from .models import AssetGroup, AssetResource, AssetTag, Tag
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 HOME_PAGE_SIZE = 72
 TAGGER_PAGE_SIZE = 80
+scan_lock = Lock()
+scan_status = {
+    "running": False,
+    "profile": "",
+    "message": "尚未扫描",
+    "started_at": None,
+    "finished_at": None,
+    "current_album": "",
+    "current": 0,
+    "total": 0,
+    "percent": 0,
+    "stats": [],
+}
 
 app = FastAPI(title="Tagbum")
 templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
@@ -26,7 +43,25 @@ app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static
 
 @app.on_event("startup")
 def startup() -> None:
-    init_db()
+    configure_database()
+    start_album_scan()
+
+
+@app.exception_handler(NoActiveProfile)
+async def no_active_profile_handler(request: Request, exc: NoActiveProfile):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": "No database profile is configured."}, status_code=409)
+    return RedirectResponse(url="/settings?missing_db=1", status_code=303)
+
+
+@app.middleware("http")
+async def require_database_for_album_pages(request: Request, call_next):
+    if _should_bypass_database_check(request.url.path):
+        return await call_next(request)
+    settings.reload()
+    if not _active_database_exists():
+        return RedirectResponse(url="/settings?missing_db=1", status_code=303)
+    return await call_next(request)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -107,6 +142,140 @@ def map_page(request: Request, session: Session = Depends(get_session)) -> HTMLR
             "located_count": located_count,
         },
     )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request) -> HTMLResponse:
+    settings.reload()
+    profiles = [_profile_payload(settings.get_profile(name)) for name in settings.profile_names]
+    database_ready = _active_database_exists()
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "active_profile": settings.active_profile_name,
+            "database_ready": database_ready,
+            "profiles": profiles,
+            "config_path": settings.config_path,
+            "scan_status": scan_status.copy(),
+        },
+    )
+
+
+@app.post("/settings/profiles/{profile_name}/use")
+def use_profile(profile_name: str):
+    try:
+        configure_database(profile_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if _active_database_exists():
+        init_db()
+        start_album_scan()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/profiles")
+def create_profile(
+    name: str = Form(...),
+    database: str = Form(""),
+    albums: str = Form(""),
+    activate: bool = Form(False),
+):
+    cleaned = name.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="profile 名称不能为空")
+    album_paths = [line.strip() for line in albums.splitlines() if line.strip()]
+    database_path = Path(database).expanduser() if database.strip() else _default_database_path(cleaned)
+    settings.upsert_profile(
+        cleaned,
+        database=database_path,
+        albums=[Path(item).expanduser() for item in album_paths],
+    )
+    if activate:
+        configure_database(cleaned)
+        init_db()
+        start_album_scan()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/profiles/{profile_name}/move-db")
+def move_profile_database(profile_name: str, destination: str = Form(...), overwrite: bool = Form(False)):
+    try:
+        profile = settings.get_profile(profile_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    target = Path(destination).expanduser().resolve()
+    if target.exists() and not overwrite:
+        raise HTTPException(status_code=400, detail="目标数据库已存在。勾选覆盖或换一个路径。")
+    if not profile.database.exists():
+        raise HTTPException(status_code=404, detail=f"数据库不存在: {profile.database}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    was_active = profile_name == settings.active_profile_name
+    if was_active:
+        dispose_database()
+    shutil.move(str(profile.database), str(target))
+    settings.upsert_profile(
+        profile_name,
+        database=target,
+        albums=[str(path) for path in profile.albums],
+        thumbnail_dir=profile.thumbnail_dir,
+    )
+    if was_active:
+        configure_database(profile_name)
+        init_db()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/profiles/{profile_name}/delete-db")
+def delete_profile_database(profile_name: str, confirm_name: str = Form(...)):
+    try:
+        profile = settings.get_profile(profile_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if confirm_name.strip() != profile_name:
+        raise HTTPException(status_code=400, detail="确认名称不匹配，未删除数据库。")
+    if scan_status.get("running") and scan_status.get("profile") == profile_name:
+        raise HTTPException(status_code=400, detail="当前数据库正在扫描。请等待扫描完成后再删除。")
+    was_active = profile_name == settings.active_profile_name
+    if was_active:
+        dispose_database()
+    try:
+        _delete_sqlite_files(profile.database)
+        settings.remove_profile(profile_name)
+        if was_active and settings.active_profile_name and _active_database_exists():
+            configure_database(settings.active_profile_name)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail="数据库文件正在被占用，请稍后再试。") from exc
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/scan")
+def scan_albums_now():
+    start_album_scan(force=True, allow_create=True)
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.post("/settings/init-db")
+def init_active_database():
+    if not settings.profile_names:
+        return RedirectResponse(url="/settings?missing_db=1", status_code=303)
+    init_db()
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@app.get("/api/settings/default-database")
+def api_default_database(name: str) -> dict:
+    return {"database": str(_default_database_path(name.strip()))}
+
+
+@app.post("/api/settings/pick-folder")
+def api_pick_folder() -> dict:
+    return {"path": _pick_windows_folder()}
+
+
+@app.get("/api/settings/scan-status")
+def api_scan_status() -> dict:
+    return scan_status.copy()
 
 
 @app.get("/api/groups")
@@ -287,6 +456,206 @@ def preview(resource_id: int, session: Session = Depends(get_session)) -> Respon
 def add_tag_from_page(group_id: int, name: str = Form(...), session: Session = Depends(get_session)):
     add_tag(group_id, name, session)
     return RedirectResponse(url="/tag", status_code=303)
+
+
+def _should_bypass_database_check(path: str) -> bool:
+    return (
+        path == "/settings"
+        or path.startswith("/settings/")
+        or path.startswith("/api/settings/")
+        or path.startswith("/static/")
+        or path == "/favicon.ico"
+    )
+
+
+def _active_database_exists() -> bool:
+    if settings.database_url:
+        return True
+    try:
+        return settings.active_profile.database.exists()
+    except (KeyError, NoActiveProfile):
+        return False
+
+
+def start_album_scan(force: bool = False, allow_create: bool = False) -> None:
+    if scan_lock.locked() and not force:
+        return
+    if not settings.profile_names:
+        scan_status.update(
+            {
+                "running": False,
+                "profile": "",
+                "message": "还没有数据库，请在设置页新增 profile 并导入相册",
+                "started_at": None,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "current_album": "",
+                "current": 0,
+                "total": 0,
+                "percent": 0,
+                "stats": [],
+            }
+        )
+        return
+    profile_name = settings.active_profile_name
+    try:
+        albums = list(settings.album_paths)
+    except NoActiveProfile:
+        albums = []
+    if not _active_database_exists() and not allow_create:
+        scan_status.update(
+            {
+                "running": False,
+                "profile": profile_name,
+                "message": "当前 profile 没有可用数据库",
+                "started_at": None,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "current_album": "",
+                "current": 0,
+                "total": 0,
+                "percent": 0,
+                "stats": [],
+            }
+        )
+        return
+    if not albums:
+        scan_status.update(
+            {
+                "running": False,
+                "profile": profile_name,
+                "message": "当前 profile 没有配置相册目录",
+                "started_at": None,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "current_album": "",
+                "current": 0,
+                "total": 0,
+                "percent": 0,
+                "stats": [],
+            }
+        )
+        return
+    Thread(target=_scan_albums_worker, args=(profile_name, albums), daemon=True).start()
+
+
+def _scan_albums_worker(profile_name: str, albums: list[Path]) -> None:
+    if not scan_lock.acquire(blocking=False):
+        return
+    scan_status.update(
+        {
+            "running": True,
+            "profile": profile_name,
+            "message": "正在检测相册变化",
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": None,
+            "current_album": "",
+            "current": 0,
+            "total": 0,
+            "percent": 0,
+            "stats": [],
+        }
+    )
+    try:
+        configure_database(profile_name)
+        init_db()
+        all_stats = []
+        with SessionLocal() as session:
+            for album in albums:
+                if not album.exists():
+                    all_stats.append({"album": str(album), "error": "目录不存在"})
+                    continue
+                stats = import_folder(album, session, commit_every=250, progress_callback=_scan_progress_callback)
+                all_stats.append({"album": str(album), **stats})
+        scan_status.update(
+            {
+                "running": False,
+                "message": "相册检测完成",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+                "current_album": "",
+                "current": scan_status.get("total", 0),
+                "percent": 100,
+                "stats": all_stats,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        scan_status.update(
+            {
+                "running": False,
+                "message": f"相册检测失败: {exc}",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+    finally:
+        scan_lock.release()
+
+
+def _scan_progress_callback(progress: dict) -> None:
+    current = int(progress.get("current") or 0)
+    total = int(progress.get("total") or 0)
+    phase = progress.get("phase")
+    source = str(progress.get("source") or "")
+    if phase == "discovering":
+        message = "正在枚举相册文件"
+        percent = 0
+    elif total:
+        message = "正在导入相册变化"
+        percent = min(100, int(current * 100 / total))
+    else:
+        message = "正在检测相册变化"
+        percent = 0
+    scan_status.update(
+        {
+            "message": message,
+            "current_album": source,
+            "current": current,
+            "total": total,
+            "percent": percent,
+        }
+    )
+
+
+def _delete_sqlite_files(database: Path) -> None:
+    for path in [
+        database,
+        Path(f"{database}-wal"),
+        Path(f"{database}-shm"),
+        Path(f"{database}-journal"),
+    ]:
+        if path.exists():
+            path.unlink()
+
+
+def _default_database_path(name: str) -> Path:
+    safe_name = "".join(char if char.isalnum() or char in ("-", "_") else "_" for char in name).strip("_")
+    if not safe_name:
+        safe_name = "tagbum"
+    return (settings.config_path.parent / "data" / f"{safe_name}.sqlite").resolve()
+
+
+def _pick_windows_folder() -> str:
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=501, detail=f"当前环境无法打开文件夹选择器: {exc}") from exc
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        folder = filedialog.askdirectory(title="选择相册目录")
+    finally:
+        root.destroy()
+    return folder or ""
+
+
+def _profile_payload(profile) -> dict:
+    return {
+        "name": profile.name,
+        "active": profile.name == settings.active_profile_name,
+        "database": profile.database,
+        "database_exists": profile.database.exists(),
+        "albums": [{"path": path, "exists": path.exists()} for path in profile.albums],
+        "thumbnail_dir": profile.thumbnail_dir or profile.database.parent / f"{profile.database.stem}_thumbnails",
+    }
 
 
 def _group_query(tag: str | None = None, tag_status: str | None = None) -> Select[tuple[AssetGroup]]:

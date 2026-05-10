@@ -1,25 +1,62 @@
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from .config import settings
+from .config import NoActiveProfile, settings
 
 
 class Base(DeclarativeBase):
     pass
 
 
-engine = create_engine(settings.db_url, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+engine: Engine | None = None
+_engine_url: str | None = None
+SessionLocal = sessionmaker(autoflush=False, expire_on_commit=False)
+
+
+def configure_database(profile: str | None = None) -> None:
+    global engine, _engine_url
+    if profile:
+        settings.set_active_profile(profile)
+    else:
+        settings.reload()
+    try:
+        next_url = settings.db_url
+    except NoActiveProfile:
+        dispose_database()
+        return
+    if engine is not None and _engine_url == next_url:
+        return
+    if engine is not None:
+        engine.dispose()
+    settings.resolved_data_dir.mkdir(parents=True, exist_ok=True)
+    engine = create_engine(next_url, connect_args={"check_same_thread": False})
+    SessionLocal.configure(bind=engine)
+    _engine_url = next_url
+
+
+def dispose_database() -> None:
+    global engine, _engine_url
+    if engine is not None:
+        engine.dispose()
+    engine = None
+    _engine_url = None
 
 
 def init_db() -> None:
+    configure_database()
+    if engine is None:
+        raise NoActiveProfile("No database profile is configured.")
     settings.resolved_data_dir.mkdir(parents=True, exist_ok=True)
     settings.thumbnail_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
 
 
 def get_session() -> Iterator[Session]:
+    configure_database()
+    if engine is None:
+        raise NoActiveProfile("No database profile is configured.")
+    Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         yield session

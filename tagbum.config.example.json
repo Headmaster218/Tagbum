@@ -1,0 +1,19 @@
+{
+  "active_profile": "default",
+  "profiles": {
+    "default": {
+      "database": "data/tagbum.sqlite",
+      "albums": [
+        "Z:/Backup/DCIM"
+      ],
+      "thumbnail_dir": "data/thumbnails"
+    },
+    "travel": {
+      "database": "data/travel.sqlite",
+      "albums": [
+        "D:/Photos/Travel",
+        "E:/CameraRoll"
+      ]
+    }
+  }
+}

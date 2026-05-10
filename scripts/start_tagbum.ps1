@@ -1,6 +1,7 @@
 param(
     [string]$HostAddress = "127.0.0.1",
     [int]$Port = 8000,
+    [string]$Profile = "",
     [switch]$NoBrowser
 )
 
@@ -31,4 +32,9 @@ if (-not $NoBrowser) {
     } -ArgumentList $url | Out-Null
 }
 
-conda run -n tagbum python -m Tagbum web --host $HostAddress --port $Port
+$args = @("run", "-n", "tagbum", "python", "-m", "Tagbum", "web", "--host", $HostAddress, "--port", $Port)
+if ($Profile) {
+    $args += @("--profile", $Profile)
+}
+
+conda @args
