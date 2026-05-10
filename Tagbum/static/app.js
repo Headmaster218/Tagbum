@@ -26,11 +26,29 @@ const taggerState = {
 
 const dateStripState = new WeakMap();
 const MAP_DENSITY_LEVELS = [10, 20, 40, 84, 140, 200];
+const MAP_TILE_PROVIDERS = {
+  osm: {
+    name: "OpenStreetMap",
+    url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: "© OpenStreetMap contributors",
+    coordinateSystem: "wgs84",
+    subdomains: [""],
+  },
+  amap: {
+    name: "高德地图",
+    url: "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
+    attribution: "© 高德地图",
+    coordinateSystem: "gcj02",
+    subdomains: ["1", "2", "3", "4"],
+  },
+};
 
 const mapState = {
   centerLat: 30,
   centerLon: 104,
   zoom: 10,
+  tileProviderKey: "osm",
+  tileProvider: MAP_TILE_PROVIDERS.osm,
   rows: 7,
   cols: 12,
   densityIndex: 3,
@@ -241,6 +259,55 @@ function normalizeLon(lon) {
   return ((((lon + 180) % 360) + 360) % 360) - 180;
 }
 
+function outOfChina(lon, lat) {
+  return lon < 72.004 || lon > 137.8347 || lat < 0.8293 || lat > 55.8271;
+}
+
+function transformGcjLat(x, y) {
+  let ret = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += ((20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2) / 3;
+  ret += ((20 * Math.sin(y * Math.PI) + 40 * Math.sin((y / 3) * Math.PI)) * 2) / 3;
+  ret += ((160 * Math.sin((y / 12) * Math.PI) + 320 * Math.sin((y * Math.PI) / 30)) * 2) / 3;
+  return ret;
+}
+
+function transformGcjLon(x, y) {
+  let ret = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += ((20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2) / 3;
+  ret += ((20 * Math.sin(x * Math.PI) + 40 * Math.sin((x / 3) * Math.PI)) * 2) / 3;
+  ret += ((150 * Math.sin((x / 12) * Math.PI) + 300 * Math.sin((x / 30) * Math.PI)) * 2) / 3;
+  return ret;
+}
+
+function wgs84ToGcj02(lon, lat) {
+  if (outOfChina(lon, lat)) return { lon, lat };
+  const a = 6378245.0;
+  const ee = 0.006693421622965943;
+  let dLat = transformGcjLat(lon - 105.0, lat - 35.0);
+  let dLon = transformGcjLon(lon - 105.0, lat - 35.0);
+  const radLat = (lat / 180.0) * Math.PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - ee * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / (((a * (1 - ee)) / (magic * sqrtMagic)) * Math.PI);
+  dLon = (dLon * 180.0) / ((a / sqrtMagic) * Math.cos(radLat) * Math.PI);
+  return { lon: lon + dLon, lat: lat + dLat };
+}
+
+function mapDisplayLonLat(lon, lat) {
+  return mapState.tileProvider.coordinateSystem === "gcj02" ? wgs84ToGcj02(lon, lat) : { lon, lat };
+}
+
+function tileUrl(provider, zoom, x, y) {
+  const subdomains = provider.subdomains || [""];
+  const subdomain = subdomains[Math.abs(x + y) % subdomains.length] || "";
+  return provider.url
+    .replace("{s}", subdomain)
+    .replace("{z}", String(zoom))
+    .replace("{x}", String(x))
+    .replace("{y}", String(y));
+}
+
 function clampWorldY(y, zoom) {
   const scale = 256 * 2 ** zoom;
   return clamp(y, 0, scale);
@@ -379,7 +446,9 @@ function renderMapTiles(map) {
   const width = map.clientWidth;
   const height = map.clientHeight;
   const zoom = mapState.zoom;
-  const center = lonLatToWorld(mapState.centerLon, mapState.centerLat, zoom);
+  const provider = mapState.tileProvider;
+  const displayCenter = mapDisplayLonLat(mapState.centerLon, mapState.centerLat);
+  const center = lonLatToWorld(displayCenter.lon, displayCenter.lat, zoom);
   const startX = Math.floor((center.x - width / 2) / 256);
   const endX = Math.floor((center.x + width / 2) / 256);
   const startY = Math.floor((center.y - height / 2) / 256);
@@ -393,10 +462,12 @@ function renderMapTiles(map) {
       const wrappedX = ((x % maxTile) + maxTile) % maxTile;
       const left = x * 256 - center.x + width / 2;
       const top = y * 256 - center.y + height / 2;
-      html.push(`<img class="map-tile" src="https://tile.openstreetmap.org/${zoom}/${wrappedX}/${y}.png" style="left:${left}px;top:${top}px" alt="">`);
+      html.push(`<img class="map-tile" src="${tileUrl(provider, zoom, wrappedX, y)}" style="left:${left}px;top:${top}px" alt="">`);
     }
   }
   tiles.innerHTML = html.join("");
+  const attribution = map.querySelector(".map-attribution");
+  if (attribution) attribution.textContent = provider.attribution;
 }
 
 function renderMapMarkersLegacy(map) {
@@ -404,10 +475,12 @@ function renderMapMarkersLegacy(map) {
   const cells = JSON.parse(markerLayer.dataset.cells || "[]");
   const width = map.clientWidth;
   const height = map.clientHeight;
-  const center = lonLatToWorld(mapState.centerLon, mapState.centerLat, mapState.zoom);
+  const displayCenter = mapDisplayLonLat(mapState.centerLon, mapState.centerLat);
+  const center = lonLatToWorld(displayCenter.lon, displayCenter.lat, mapState.zoom);
   markerLayer.innerHTML = cells.map((cell) => {
     const group = cell.group;
-    const point = lonLatToWorld(group.longitude, group.latitude, mapState.zoom);
+    const displayPoint = mapDisplayLonLat(group.longitude, group.latitude);
+    const point = lonLatToWorld(displayPoint.lon, displayPoint.lat, mapState.zoom);
     const left = wrappedWorldDelta(point.x, center.x, mapState.zoom) + width / 2;
     const top = point.y - center.y + height / 2;
     return `
@@ -426,10 +499,12 @@ function renderMapMarkers(map) {
   const cells = JSON.parse(markerLayer.dataset.cells || "[]");
   const width = map.clientWidth;
   const height = map.clientHeight;
-  const center = lonLatToWorld(mapState.centerLon, mapState.centerLat, mapState.zoom);
+  const displayCenter = mapDisplayLonLat(mapState.centerLon, mapState.centerLat);
+  const center = lonLatToWorld(displayCenter.lon, displayCenter.lat, mapState.zoom);
   markerLayer.innerHTML = cells.map((cell) => {
     const group = cell.group;
-    const point = lonLatToWorld(group.longitude, group.latitude, mapState.zoom);
+    const displayPoint = mapDisplayLonLat(group.longitude, group.latitude);
+    const point = lonLatToWorld(displayPoint.lon, displayPoint.lat, mapState.zoom);
     const left = wrappedWorldDelta(point.x, center.x, mapState.zoom) + width / 2;
     const top = point.y - center.y + height / 2;
     return `
@@ -649,6 +724,8 @@ function initMap() {
   mapState.centerLat = Number(map.dataset.centerLat || 30);
   mapState.centerLon = normalizeLon(Number(map.dataset.centerLon || 104));
   mapState.zoom = Number(map.dataset.zoom || 10);
+  mapState.tileProviderKey = map.dataset.tileProvider || "osm";
+  mapState.tileProvider = MAP_TILE_PROVIDERS[mapState.tileProviderKey] || MAP_TILE_PROVIDERS.osm;
   const storedDensity = Number(localStorage.getItem("tagbum.mapDensity"));
   const initialDensity = Number.isFinite(storedDensity) ? storedDensity : Number(map.dataset.density || 3);
   resizeMapCanvas(map);

@@ -140,6 +140,7 @@ def map_page(request: Request, session: Session = Depends(get_session)) -> HTMLR
             "center_lat": center_lat,
             "center_lon": center_lon,
             "located_count": located_count,
+            "map_tile_provider": settings.map_tile_provider,
         },
     )
 
@@ -158,8 +159,18 @@ def settings_page(request: Request) -> HTMLResponse:
             "profiles": profiles,
             "config_path": settings.config_path,
             "scan_status": scan_status.copy(),
+            "map_tile_provider": settings.map_tile_provider,
         },
     )
+
+
+@app.post("/settings/map")
+def update_map_settings(map_tile_provider: str = Form(...)):
+    try:
+        settings.set_map_tile_provider(map_tile_provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RedirectResponse(url="/settings", status_code=303)
 
 
 @app.post("/settings/profiles/{profile_name}/use")

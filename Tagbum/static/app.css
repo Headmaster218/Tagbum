@@ -481,12 +481,14 @@ main {
   padding-right: 4px;
 }
 
-input {
+input,
+select {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 8px 9px;
   font: inherit;
+  background: var(--panel);
 }
 
 textarea {

@@ -23,6 +23,9 @@ class NoActiveProfile(RuntimeError):
     pass
 
 
+MAP_TILE_PROVIDERS = {"osm", "amap"}
+
+
 class Settings:
     def __init__(self) -> None:
         self.thumbnail_size = int(os.environ.get("TAGBUM_THUMBNAIL_SIZE", "640"))
@@ -125,6 +128,18 @@ class Settings:
         raw["albums"] = albums
         self.save()
 
+    @property
+    def map_tile_provider(self) -> str:
+        provider = str(self._raw.get("map_tile_provider") or "osm")
+        return provider if provider in MAP_TILE_PROVIDERS else "osm"
+
+    def set_map_tile_provider(self, provider: str) -> None:
+        cleaned = provider.strip().lower()
+        if cleaned not in MAP_TILE_PROVIDERS:
+            raise ValueError(f"Unknown map tile provider: {provider}")
+        self._raw["map_tile_provider"] = cleaned
+        self.save()
+
     def save(self) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.config_path.write_text(json.dumps(self._raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -161,6 +176,7 @@ class Settings:
     def _default_config(self) -> dict[str, Any]:
         return {
             "active_profile": "",
+            "map_tile_provider": "osm",
             "profiles": {},
         }
 
@@ -169,6 +185,7 @@ class Settings:
         database = data_dir / "tagbum.sqlite"
         return {
             "active_profile": "env",
+            "map_tile_provider": "osm",
             "profiles": {
                 "env": {
                     "database": self._serialize_path(database),

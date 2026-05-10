@@ -20,6 +20,23 @@
   </form>
 </section>
 
+<section class="settings-summary map-source-panel">
+  <div>
+    <strong>地图瓦片源</strong>
+    <span>大陆网络下 OpenStreetMap 可能不稳定，可以切换到高德地图。高德底图显示时会对照片 GPS 做 WGS84 到 GCJ-02 的前端转换。</span>
+  </div>
+  <form method="post" action="/settings/map" class="inline-form">
+    <label>
+      当前源
+      <select name="map_tile_provider">
+        <option value="osm" {% if map_tile_provider == "osm" %}selected{% endif %}>OpenStreetMap</option>
+        <option value="amap" {% if map_tile_provider == "amap" %}selected{% endif %}>高德地图</option>
+      </select>
+    </label>
+    <button type="submit">保存</button>
+  </form>
+</section>
+
 {% if not database_ready %}
 <section class="settings-warning">
   <strong>当前没有可用数据库</strong>

@@ -1,5 +1,6 @@
 {
   "active_profile": "default",
+  "map_tile_provider": "osm",
   "profiles": {
     "default": {
       "database": "data/tagbum.sqlite",
