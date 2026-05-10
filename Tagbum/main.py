@@ -595,6 +595,12 @@ def _scan_progress_callback(progress: dict) -> None:
     if phase == "discovering":
         message = "正在枚举相册文件"
         percent = 0
+    elif phase == "metadata":
+        message = f"正在并行读取图片信息（{progress.get('workers', '?')} 线程）"
+        percent = min(100, int(current * 100 / total)) if total else 0
+    elif phase == "thumbnails":
+        message = "正在并行生成缩略图"
+        percent = min(100, int(current * 100 / total)) if total else 100
     elif total:
         message = "正在导入相册变化"
         percent = min(100, int(current * 100 / total))

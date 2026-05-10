@@ -32,7 +32,14 @@ def init_db_command(profile: str | None) -> None:
 @click.option("--profile", default=None, help="Database profile to import into.")
 @click.option("--limit", type=int, default=None, help="Import only the first N supported files.")
 @click.option("--commit-every", type=int, default=250, show_default=True, help="Commit progress every N files.")
-def import_command(source: Path | None, profile: str | None, limit: int | None, commit_every: int) -> None:
+@click.option("--workers", type=int, default=None, help="Worker threads for metadata and thumbnail work.")
+def import_command(
+    source: Path | None,
+    profile: str | None,
+    limit: int | None,
+    commit_every: int,
+    workers: int | None,
+) -> None:
     if profile:
         configure_database(profile)
     try:
@@ -45,7 +52,7 @@ def import_command(source: Path | None, profile: str | None, limit: int | None, 
     with SessionLocal() as session:
         for album in sources:
             click.echo(f"Importing {album} into {settings.active_profile_name}: {settings.active_profile.database}")
-            stats = import_folder(album, session, limit=limit, commit_every=commit_every)
+            stats = import_folder(album, session, limit=limit, commit_every=commit_every, workers=workers)
             for key, value in stats.items():
                 click.echo(f"{key}: {value}")
 
