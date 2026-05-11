@@ -224,5 +224,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-Tagbum/__init__.py
-Tagbum/__main__.py
+__init__.py
+__main__.py
