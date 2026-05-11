@@ -1,24 +1,42 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head">
+<section class="page-head home-head">
   <div>
     <h1>主界面</h1>
-    <p>最近导入的资源组。Live Photo、AAE 调整文件和同 stem 资源会归到同一组。</p>
+    <p>按时间连续浏览资源组，向下滚动时分块加载；右侧时间标尺用于按日期快速定位。</p>
   </div>
-  <div class="page-count">
-    第 {{ page }} / {{ total_pages }} 页，共 {{ total_groups }} 组
+  <div class="page-count" data-home-count>
+    0 / {{ total_groups }}
   </div>
 </section>
 
-{% include "_pager.html" %}
+<section
+  class="home-layout"
+  data-home-gallery-root
+  data-total-groups="{{ total_groups }}"
+  data-page-size="{{ page_size }}"
+  data-initial-offset="{{ initial_offset }}"
+  data-current-date="{{ current_date }}"
+>
+  <div class="home-stream-column">
+    <section class="home-gallery" data-home-gallery></section>
+    <div class="home-gallery-status" data-home-gallery-status>准备加载</div>
+    <div class="home-gallery-sentinel" data-home-gallery-sentinel aria-hidden="true"></div>
+  </div>
 
-<section class="gallery">
-  {% for group in groups %}
-    {% include "_card.html" %}
-  {% else %}
-    <p class="empty">还没有索引照片。先运行导入命令。</p>
-  {% endfor %}
+  <aside class="home-timeline-rail">
+    <div class="home-timeline-panel">
+      <div class="home-timeline-head">
+        <strong data-home-timeline-label>选择日期</strong>
+        <button type="button" data-home-timeline-jump>跳转</button>
+      </div>
+      <div class="home-timeline-shell">
+        <div class="home-timeline-ruler">
+          <span data-home-timeline-current>--</span>
+        </div>
+        <div class="home-timeline" data-home-timeline></div>
+      </div>
+    </div>
+  </aside>
 </section>
-
-{% include "_pager.html" %}
 {% endblock %}

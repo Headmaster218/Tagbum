@@ -73,25 +73,21 @@ def home(
     session: Session = Depends(get_session),
 ) -> HTMLResponse:
     total_groups = _count_groups(session)
+    offset = 0
     if jump_date:
         offset = _resolve_offset_for_date(session, jump_date)
-        page = offset // HOME_PAGE_SIZE + 1
-    page = max(1, min(page, max(1, _total_pages(total_groups, HOME_PAGE_SIZE))))
-    offset = (page - 1) * HOME_PAGE_SIZE
-    groups = _load_groups(session, limit=HOME_PAGE_SIZE, offset=offset)
-    tags = _load_tags(session)
+    else:
+        page = max(1, min(page, max(1, _total_pages(total_groups, HOME_PAGE_SIZE))))
+        offset = (page - 1) * HOME_PAGE_SIZE
+    groups = _load_groups(session, limit=1, offset=offset)
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "groups": groups,
-            "tags": tags,
-            "page": page,
-            "total_pages": _total_pages(total_groups, HOME_PAGE_SIZE),
             "total_groups": total_groups,
-            "page_window": _page_window(page, _total_pages(total_groups, HOME_PAGE_SIZE)),
-            "active_date": jump_date or "",
             "current_date": _first_group_date(groups),
+            "initial_offset": offset,
+            "page_size": HOME_PAGE_SIZE,
         },
     )
 
