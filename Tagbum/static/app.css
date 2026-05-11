@@ -1474,6 +1474,15 @@ textarea {
   font-size: 13px;
 }
 
+[data-busy-lock-form].is-busy {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+.tools-action-busy [data-busy-lock-form] {
+  pointer-events: none;
+}
+
 .tool-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

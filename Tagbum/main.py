@@ -20,6 +20,7 @@ from .duplicates import (
     cache_path as duplicate_cache_path,
     duplicate_summary,
     list_content_duplicate_sets,
+    list_exact_duplicate_signatures,
     list_exact_duplicate_sets,
     quarantine_exact_keep_one,
     quarantine_resource,
@@ -48,6 +49,7 @@ scan_status = {
     "stats": [],
 }
 duplicate_lock = Lock()
+duplicate_action_lock = Lock()
 duplicate_status = {
     "running": False,
     "profile": "",
@@ -254,18 +256,39 @@ def apply_exact_duplicate_action(
     keep_resource_id: int | None = Form(None),
     session: Session = Depends(get_session),
 ):
-    moved = quarantine_exact_keep_one(session, signature, keep_resource_id=keep_resource_id)
-    duplicate_status.update(
-        {
-            "message": (
-                f"已移动 {moved['moved']} 个纯图片重复项到隔离区"
-                if moved["mode"] == "remove_plain_only"
-                else f"已移动 {moved['moved']} 个完全重复文件到隔离区，保留了选中的 1 个"
-            ),
-            "finished_at": datetime.now().isoformat(timespec="seconds"),
-        }
+    return _run_duplicate_delete_action(
+        action=lambda: quarantine_exact_keep_one(session, signature, keep_resource_id=keep_resource_id),
+        redirect_url="/tools/duplicates?mode=exact",
+        message_builder=_format_exact_duplicate_message,
     )
-    return RedirectResponse(url="/tools/duplicates?mode=exact", status_code=303)
+
+
+@app.post("/tools/duplicates/exact/bulk-apply")
+def apply_exact_duplicate_bulk_action(
+    session: Session = Depends(get_session),
+):
+    def action() -> dict:
+        signatures = list_exact_duplicate_signatures()
+        moved = 0
+        groups = 0
+        skipped = 0
+        for signature in signatures:
+            outcome = quarantine_exact_keep_one(session, signature)
+            if outcome["moved"] > 0:
+                groups += 1
+            else:
+                skipped += 1
+            moved += outcome["moved"]
+        return {"moved": moved, "groups": groups, "skipped": skipped, "mode": "bulk"}
+
+    return _run_duplicate_delete_action(
+        action=action,
+        redirect_url="/tools/duplicates?mode=exact",
+        message_builder=lambda result: (
+            f"智能删除已完成：处理了 {result['groups']} 组，移动了 {result['moved']} 个重复文件"
+            + (f"，另有 {result['skipped']} 组没有可删除的纯图片项。" if result["skipped"] else "。")
+        ),
+    )
 
 
 @app.post("/tools/duplicates/exact/{signature}/quarantine-half")
@@ -274,27 +297,25 @@ def quarantine_exact_duplicate_half(
     keep_resource_id: int | None = Form(None),
     session: Session = Depends(get_session),
 ):
-    moved = quarantine_exact_keep_one(session, signature, keep_resource_id=keep_resource_id)
-    duplicate_status.update(
-        {
-            "message": f"已移动 {moved['moved']} 个完全重复文件到隔离区",
-            "finished_at": datetime.now().isoformat(timespec="seconds"),
-        }
+    return _run_duplicate_delete_action(
+        action=lambda: quarantine_exact_keep_one(session, signature, keep_resource_id=keep_resource_id),
+        redirect_url="/tools/duplicates?mode=exact",
+        message_builder=_format_exact_duplicate_message,
     )
-    return RedirectResponse(url="/tools?mode=exact", status_code=303)
 
 
 @app.post("/tools/duplicates/resources/{resource_id}/quarantine")
 def quarantine_duplicate_resource(resource_id: int, mode: str = Form("content"), session: Session = Depends(get_session)):
-    moved = quarantine_resource(session, resource_id)
-    duplicate_status.update(
-        {
-            "message": "已移动 1 个文件到隔离区" if moved else "文件不存在，已清理数据库记录",
-            "finished_at": datetime.now().isoformat(timespec="seconds"),
-        }
-    )
     next_mode = mode if mode in {"exact", "content"} else "content"
-    return RedirectResponse(url=f"/tools/duplicates?mode={next_mode}", status_code=303)
+    return _run_duplicate_delete_action(
+        action=lambda: {"moved": 1 if quarantine_resource(session, resource_id) else 0},
+        redirect_url=f"/tools/duplicates?mode={next_mode}",
+        message_builder=lambda result: (
+            "?? 1 ??????????"
+            if result["moved"]
+            else "????????????????"
+        ),
+    )
 
 
 @app.post("/settings/map")
@@ -738,6 +759,46 @@ def start_album_scan(force: bool = False, allow_create: bool = False) -> None:
         )
         return
     Thread(target=_scan_albums_worker, args=(profile_name, albums), daemon=True).start()
+
+
+def _run_duplicate_delete_action(action, redirect_url: str, message_builder) -> RedirectResponse:
+    if duplicate_lock.locked():
+        duplicate_status.update(
+            {
+                "message": "重复分析仍在进行中，请稍候再执行删除。",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+        return RedirectResponse(url=redirect_url, status_code=303)
+    if not duplicate_action_lock.acquire(blocking=False):
+        duplicate_status.update(
+            {
+                "message": "删除任务正在进行中，请不要重复点击。",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+        return RedirectResponse(url=redirect_url, status_code=303)
+    try:
+        result = action()
+        duplicate_status.update(
+            {
+                "message": message_builder(result),
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+    finally:
+        duplicate_action_lock.release()
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+def _format_exact_duplicate_message(result: dict) -> str:
+    if result.get("mode") == "keep_earliest_group":
+        return f"已移动 {result['moved']} 个整组重复资源到隔离区，并保留了最早的那一组。"
+    if result.get("mode") == "remove_plain_only":
+        return f"已移动 {result['moved']} 个纯图片重复项到隔离区，并保留了所有带伴生资源的项。"
+    if result.get("mode") == "keep_selected":
+        return f"已移动 {result['moved']} 个完全相同的文件到隔离区，并保留了你选中的那一项。"
+    return "这一组没有可处理的重复文件。"
 
 
 def _start_duplicate_scan(force: bool = False) -> None:

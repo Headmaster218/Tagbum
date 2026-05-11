@@ -3,7 +3,7 @@
 <section class="page-head">
   <div>
     <h1>重复图片筛选</h1>
-    <p>使用独立缓存库分析重复图片，不改动原始数据库结构。删除操作会先移动到隔离区，避免误删后无法回退。</p>
+    <p>使用独立缓存库分析重复图片，不改动原始数据库结构。删除操作会先移动到隔离区，方便后续复查。</p>
   </div>
   <div class="page-count">
     <a class="filter-chip" href="/tools">返回工具箱</a>
@@ -12,7 +12,10 @@
 
 <section class="settings-warning">
   <strong>高风险区域</strong>
-  <span>“删除”操作被实现为移动到工作目录下的隔离区：{{ quarantine_path }}。如果某组里含有 live、video、edited、raw 等伴生资源，这一页只允许清理不带伴生资源的纯图片项。</span>
+  <span>
+    “删除”操作实际是移动到工作目录下的隔离区：{{ quarantine_path }}。
+    若某组里包含 live、video、edited、raw 等伴生资源，这里只会删除不带伴生资源的纯图片项。
+  </span>
 </section>
 
 <section class="settings-summary">
@@ -49,6 +52,18 @@
 </section>
 
 {% if results %}
+  {% if mode == "exact" %}
+    <section class="settings-summary">
+      <div>
+        <strong>全库智能删除</strong>
+        <span>会扫描当前数据库里的所有完全相同组。纯图片资源组删除到只剩 1 个；若整组资源和伴生资源都完全相同，也只保留最早的一组；其他带伴生资源的组则保留所有伴生资源项，只删除纯图片项。</span>
+      </div>
+      <form method="post" action="/tools/duplicates/exact/bulk-apply" data-busy-lock-form>
+        <button type="submit">一键智能删除全部</button>
+      </form>
+    </section>
+  {% endif %}
+
   <section class="profile-grid duplicate-grid">
     {% for result in results %}
       {% set form_id = "exact-form-" ~ loop.index %}
@@ -57,18 +72,22 @@
           <div>
             <h2>{{ result.count }} 个文件</h2>
             <span class="muted-text">签名 {{ result.signature[:12] }}...</span>
-            {% if result.has_companions %}
-              <span class="muted-text">本组含 {{ result.companion_count }} 个带伴生资源的项，只会删除 {{ result.plain_count }} 个纯图片项。</span>
+            {% if result.can_reduce_with_companions %}
+              <span class="muted-text">本组的伴生资源也完全一致，执行后会只保留最早的一组。</span>
+            {% elif result.has_companions %}
+              <span class="muted-text">本组有 {{ result.companion_count }} 个带伴生资源的项，只会清理 {{ result.plain_count }} 个纯图片项。</span>
             {% elif mode == "exact" %}
-              <span class="muted-text">请在下方选择保留项，其余将移入隔离区。</span>
+              <span class="muted-text">默认保留最早的一项，你也可以在下方改选保留项。</span>
             {% endif %}
           </div>
           {% if mode == "exact" %}
-            {% if result.plain_count <= 0 %}
+            {% if result.plain_count <= 0 and not result.can_reduce_with_companions %}
               <span class="chip muted">没有可自动处理的纯图片项</span>
             {% else %}
-              <form id="{{ form_id }}" method="post" action="/tools/duplicates/exact/{{ result.signature }}/apply" onsubmit="return confirm('{{ '将删除所有不带伴生资源的图片，继续吗？' if result.has_companions else '将删除除保留项外的所有图片，继续吗？' }}');">
-                <button type="submit">{{ "删除不带伴生资源的图片" if result.has_companions else "删除到只剩 1 个" }}</button>
+              <form id="{{ form_id }}" method="post" action="/tools/duplicates/exact/{{ result.signature }}/apply" data-busy-lock-form>
+                <button type="submit">
+                  {{ "删除到只剩最早 1 组" if result.can_reduce_with_companions else ("删除不带伴生资源的图片" if result.has_companions else "删除到只剩 1 个") }}
+                </button>
               </form>
             {% endif %}
           {% endif %}
@@ -111,6 +130,10 @@
                     >
                     <span>保留此项</span>
                   </label>
+                {% elif mode == "exact" and result.can_reduce_with_companions and loop.first %}
+                  <span class="chip muted">保留最早组</span>
+                {% elif mode == "exact" and result.can_reduce_with_companions %}
+                  <span class="chip muted">将整组删除</span>
                 {% elif mode == "exact" and item.has_companions %}
                   <span class="chip muted">保留此项</span>
                 {% elif mode == "exact" %}
@@ -121,7 +144,7 @@
                   {% if item.has_companions %}
                     <span class="chip muted">含伴生资源，先人工确认</span>
                   {% else %}
-                    <form method="post" action="/tools/duplicates/resources/{{ item.resource_id }}/quarantine" onsubmit="return confirm('将这个文件移入隔离区，继续吗？');">
+                    <form method="post" action="/tools/duplicates/resources/{{ item.resource_id }}/quarantine" data-busy-lock-form>
                       <input type="hidden" name="mode" value="content">
                       <button type="submit">删除此项</button>
                     </form>

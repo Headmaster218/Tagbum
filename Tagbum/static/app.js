@@ -1710,6 +1710,7 @@ function initSettingsPage() {
 function initToolsPage() {
   const root = document.querySelector("[data-duplicate-status]");
   if (!root) return;
+  initBusyLockForms();
   let lastRunning = root.dataset.running === "true";
   let lastFinishedAt = root.dataset.finishedAt || "";
   const poll = async () => {
@@ -1727,6 +1728,28 @@ function initToolsPage() {
   };
   poll();
   window.setInterval(poll, 1000);
+}
+
+function initBusyLockForms() {
+  const forms = [...document.querySelectorAll("[data-busy-lock-form]")];
+  forms.forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      if (form.dataset.busy === "true") {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.busy = "true";
+      document.body.classList.add("tools-action-busy");
+      form.classList.add("is-busy");
+      form.querySelectorAll("button").forEach((button) => {
+        button.disabled = true;
+      });
+      if (event.submitter) {
+        event.submitter.dataset.originalLabel = event.submitter.textContent;
+        event.submitter.textContent = "处理中...";
+      }
+    });
+  });
 }
 
 document.addEventListener("click", async (event) => {

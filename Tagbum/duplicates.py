@@ -224,6 +224,24 @@ def list_exact_duplicate_sets(session: Session, page: int = 1, page_size: int = 
     return _list_duplicate_sets(session, mode="exact", page=page, page_size=page_size)
 
 
+def list_exact_duplicate_signatures() -> list[str]:
+    init_duplicate_cache()
+    profile_key = profile_cache_key()
+    with sqlite3.connect(cache_path()) as connection:
+        rows = connection.execute(
+            """
+            SELECT file_sha256
+            FROM image_duplicate_cache
+            WHERE profile_key = ? AND file_sha256 IS NOT NULL AND file_sha256 != ''
+            GROUP BY file_sha256
+            HAVING COUNT(*) > 1
+            ORDER BY COUNT(*) DESC, MIN(path)
+            """,
+            (profile_key,),
+        ).fetchall()
+    return [str(row[0]) for row in rows if row[0]]
+
+
 def list_content_duplicate_sets(session: Session, page: int = 1, page_size: int = 20) -> tuple[list[dict], int]:
     return _list_duplicate_sets(session, mode="content", page=page, page_size=page_size)
 
@@ -233,14 +251,25 @@ def quarantine_exact_keep_one(session: Session, signature: str, keep_resource_id
     if len(rows) < 2:
         return {"moved": 0, "kept": keep_resource_id, "mode": "noop"}
     items = _hydrate_duplicate_items(session, rows)
+    known_hashes = {int(row["resource_id"]): str(row.get("file_sha256") or "") for row in rows}
     plain_items = [item for item in items if not item["has_companions"]]
     companion_items = [item for item in items if item["has_companions"]]
+    if companion_items and _groups_have_identical_bundles(session, items, known_hashes):
+        keep_group_id = _earliest_group_id(session, items)
+        if keep_group_id is not None:
+            to_move_group_ids = {int(item["group_id"]) for item in items if int(item["group_id"]) != keep_group_id}
+            moved = 0
+            for group_id in sorted(to_move_group_ids):
+                moved += quarantine_group(session, group_id)
+            kept = [int(item["resource_id"]) for item in items if int(item["group_id"]) == keep_group_id]
+            return {"moved": moved, "kept": kept, "mode": "keep_earliest_group"}
     if companion_items:
         to_move_ids = {int(item["resource_id"]) for item in plain_items}
         kept = [int(item["resource_id"]) for item in companion_items]
         mode = "remove_plain_only"
     else:
-        keep_id = keep_resource_id if any(int(item["resource_id"]) == int(keep_resource_id or -1) for item in items) else int(items[0]["resource_id"])
+        default_keep_id = int(items[0]["resource_id"])
+        keep_id = keep_resource_id if any(int(item["resource_id"]) == int(keep_resource_id or -1) for item in items) else default_keep_id
         to_move_ids = {int(item["resource_id"]) for item in items if int(item["resource_id"]) != keep_id}
         kept = [keep_id]
         mode = "keep_selected"
@@ -268,6 +297,18 @@ def quarantine_resource(session: Session, resource_id: int) -> bool:
     _delete_cached_resources(profile_cache_key(), [resource_id])
     _remove_resource_from_database(session, resource)
     return True
+
+
+def quarantine_group(session: Session, group_id: int) -> int:
+    group = session.get(AssetGroup, group_id)
+    if group is None:
+        return 0
+    resource_ids = [int(resource.id) for resource in group.resources]
+    moved = 0
+    for resource_id in resource_ids:
+        if quarantine_resource(session, resource_id):
+            moved += 1
+    return moved
 
 
 def _remove_resource_from_database(session: Session, resource: AssetResource) -> None:
@@ -363,6 +404,12 @@ def _list_duplicate_sets(session: Session, mode: str, page: int, page_size: int)
     for row in signatures:
         items = _duplicate_rows_for_signature(profile_key, mode, row["signature"])
         hydrated_items = _hydrate_duplicate_items(session, items)
+        known_hashes = {int(item["resource_id"]): str(item.get("file_sha256") or "") for item in items}
+        can_reduce_with_companions = (
+            mode == "exact"
+            and any(item["has_companions"] for item in hydrated_items)
+            and _groups_have_identical_bundles(session, hydrated_items, known_hashes)
+        )
         sets.append(
             {
                 "signature": row["signature"],
@@ -371,6 +418,7 @@ def _list_duplicate_sets(session: Session, mode: str, page: int, page_size: int)
                 "has_companions": any(item["has_companions"] for item in hydrated_items),
                 "plain_count": sum(1 for item in hydrated_items if not item["has_companions"]),
                 "companion_count": sum(1 for item in hydrated_items if item["has_companions"]),
+                "can_reduce_with_companions": can_reduce_with_companions,
             }
         )
     return sets, total
@@ -420,8 +468,10 @@ def _hydrate_duplicate_items(session: Session, rows: list[dict]) -> list[dict]:
                 "pixel_sha256": row.get("pixel_sha256") or "",
                 "companion_kinds": _group_companion_kinds(group) if group else [],
                 "has_companions": bool(_group_companion_kinds(group)) if group else False,
+                "group_first_mtime": _group_first_mtime(group).isoformat(timespec="seconds") if group else resource.mtime.isoformat(timespec="seconds"),
             }
         )
+    payload.sort(key=lambda item: (item["group_first_mtime"], int(item["group_id"]), int(item["resource_id"])))
     return payload
 
 
@@ -440,6 +490,50 @@ def _group_companion_kinds(group: AssetGroup | None) -> list[str]:
         else:
             labels.append(resource.kind)
     return sorted(set(labels))
+
+
+def _group_first_mtime(group: AssetGroup | None) -> datetime:
+    if group is None or not group.resources:
+        return datetime.max
+    return min(resource.mtime for resource in group.resources if resource.mtime is not None)
+
+
+def _earliest_group_id(session: Session, items: list[dict]) -> int | None:
+    group_ids = sorted({int(item["group_id"]) for item in items})
+    groups = list(session.scalars(select(AssetGroup).where(AssetGroup.id.in_(group_ids))))
+    if not groups:
+        return None
+    earliest = min(groups, key=lambda group: (_group_first_mtime(group), int(group.id)))
+    return int(earliest.id)
+
+
+def _groups_have_identical_bundles(session: Session, items: list[dict], known_hashes: dict[int, str]) -> bool:
+    group_ids = sorted({int(item["group_id"]) for item in items})
+    if len(group_ids) < 2:
+        return False
+    groups = list(session.scalars(select(AssetGroup).where(AssetGroup.id.in_(group_ids))))
+    signatures = {_group_bundle_signature(group, known_hashes) for group in groups}
+    return len(signatures) == 1
+
+
+def _group_bundle_signature(group: AssetGroup, known_hashes: dict[int, str]) -> tuple[tuple[str, str, int, str], ...]:
+    parts: list[tuple[str, str, int, str]] = []
+    for resource in group.resources:
+        file_hash = known_hashes.get(int(resource.id)) or _resource_sha256(Path(resource.path))
+        parts.append((resource.kind, resource.extension, int(resource.size_bytes), file_hash))
+    parts.sort()
+    return tuple(parts)
+
+
+def _resource_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return f"missing:{path}"
 
 
 def _load_cache_index(profile_key: str) -> dict[int, dict]:
