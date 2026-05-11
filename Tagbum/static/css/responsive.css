@@ -1,0 +1,110 @@
+@media (max-width: 760px) {
+  .topbar,
+  .page-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  main {
+    padding: 18px;
+  }
+
+  .modal {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .modal-media {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    padding: 12px;
+  }
+
+  .modal-nav {
+    width: 42px;
+  }
+
+  .modal-side {
+    max-height: 42vh;
+  }
+
+  .tagger {
+    grid-template-columns: 1fr;
+  }
+
+  .tagger-stage {
+    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    min-height: auto;
+  }
+
+  .tagger-photo {
+    height: 58vh;
+  }
+
+  .home-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .home-timeline-rail {
+    position: static;
+    order: -1;
+  }
+
+  .home-timeline-shell {
+    height: 280px;
+    min-height: 280px;
+  }
+
+  .gallery-month-divider {
+    padding-left: 64px;
+  }
+
+  .gallery-month-divider::before {
+    left: 64px;
+  }
+
+  .gallery-month-divider span {
+    width: 56px;
+    font-size: 12px;
+  }
+
+  .map-canvas {
+    min-height: 360px;
+  }
+
+  .map-cell-panel {
+    inset: 10px;
+  }
+
+  .map-cell-board {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .map-cell-detail {
+    grid-template-rows: 300px auto;
+  }
+
+  .settings-summary,
+  .profile-card header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .move-db-form,
+  .delete-db-form,
+  .new-profile-form {
+    grid-template-columns: 1fr;
+  }
+
+  .duplicate-item {
+    grid-template-columns: 1fr;
+  }
+
+  .pager-jump {
+    grid-template-columns: auto 88px auto;
+  }
+
+  .date-strip-shell {
+    grid-column: 1 / -1;
+  }
+}

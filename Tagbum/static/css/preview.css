@@ -1,0 +1,126 @@
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  background: rgba(20, 24, 22, 0.78);
+}
+
+.modal.open {
+  display: grid;
+}
+
+.modal-media {
+  position: relative;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 54px;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 28px;
+}
+
+.modal-view {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+  touch-action: none;
+  cursor: default;
+}
+
+.modal-view img,
+.modal-view video {
+  max-width: 100%;
+  max-height: calc(100vh - 56px);
+  background: #111;
+}
+
+.modal-image {
+  transform-origin: center center;
+  transition: transform 120ms ease;
+  will-change: transform;
+}
+
+.modal-live {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.modal-nav {
+  width: 54px;
+  height: 84px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.9);
+  font-size: 32px;
+}
+
+.modal-side {
+  overflow: auto;
+  background: var(--panel);
+  padding: 20px;
+}
+
+.modal-close {
+  float: right;
+}
+
+.modal-close-floating {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.is-panning,
+.is-panning .modal-view {
+  cursor: grabbing;
+}
+
+.preview-tools {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+
+.preview-tools a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 12px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.preview-tools a:hover {
+  border-color: var(--accent);
+}
+
+.resource-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.resource-list a {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px;
+  overflow-wrap: anywhere;
+}
