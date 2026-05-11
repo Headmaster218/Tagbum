@@ -1,7 +1,18 @@
-# Tagbum Docs
+# Tagbum 文档
 
-This directory stores module-level notes for Tagbum.
+这套文档面向维护和继续开发，重点说明：
 
-- `modules/vertical_timeline.md`: the home page vertical timeline and date-jump rail
+- 当前代码的整体结构
+- 前后端各模块职责
+- 主要依赖关系
+- 常见功能的数据流向
 
-Add new module docs here as features stabilize.
+建议阅读顺序：
+
+1. [架构总览](./architecture.md)
+2. [目录与职责](./structure.md)
+3. [后端说明](./backend.md)
+4. [前端说明](./frontend.md)
+5. [关键流程](./flows.md)
+
+`modules/` 目录先保留给更细粒度的功能专题说明，当前不是主阅读入口。
