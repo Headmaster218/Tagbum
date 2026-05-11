@@ -14,7 +14,7 @@
   <strong>高风险区域</strong>
   <span>
     “删除”操作实际是移动到工作目录下的隔离区：{{ quarantine_path }}。
-    若某组里包含 live、video、edited、raw 等伴生资源，这里只会删除不带伴生资源的纯图片项。
+    如果某组里包含 live、video、edited、raw 等伴生资源，这里只会删除不带伴生资源的纯图片项。
   </span>
 </section>
 
@@ -56,7 +56,7 @@
     <section class="settings-summary">
       <div>
         <strong>全库智能删除</strong>
-        <span>会扫描当前数据库里的所有完全相同组。纯图片资源组删除到只剩 1 个；若整组资源和伴生资源都完全相同，也只保留最早的一组；其他带伴生资源的组则保留所有伴生资源项，只删除纯图片项。</span>
+        <span>会扫描当前数据库里的所有完全相同组。纯图片资源组删除到只剩 1 个；如果整组资源和伴生资源都完全相同，也只保留最早的一组；其他带伴生资源的组则保留所有伴生资源项，只删除纯图片项。</span>
       </div>
       <form method="post" action="/tools/duplicates/exact/bulk-apply" data-busy-lock-form>
         <button type="submit">一键智能删除全部</button>
@@ -73,7 +73,7 @@
             <h2>{{ result.count }} 个文件</h2>
             <span class="muted-text">签名 {{ result.signature[:12] }}...</span>
             {% if result.can_reduce_with_companions %}
-              <span class="muted-text">本组的伴生资源也完全一致，执行后会只保留最早的一组。</span>
+              <span class="muted-text">本组伴生资源也完全一致，执行后只会保留最早的一组。</span>
             {% elif result.has_companions %}
               <span class="muted-text">本组有 {{ result.companion_count }} 个带伴生资源的项，只会清理 {{ result.plain_count }} 个纯图片项。</span>
             {% elif mode == "exact" %}

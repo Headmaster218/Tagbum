@@ -3,7 +3,7 @@
 <section class="page-head">
   <div>
     <h1>设置</h1>
-    <p>管理相册来源、数据库位置和当前使用的数据库 profile。</p>
+    <p>管理相册来源、数据库位置，以及当前使用的数据配置。</p>
   </div>
   <div class="page-count">
     当前：{{ active_profile }}
@@ -23,7 +23,7 @@
 <section class="settings-summary map-source-panel">
   <div>
     <strong>地图瓦片源</strong>
-    <span>大陆网络下 OpenStreetMap 可能不稳定，可以切换到高德地图。高德底图显示时会对照片 GPS 做 WGS84 到 GCJ-02 的前端转换。</span>
+    <span>大陆网络下 OpenStreetMap 可能不稳定，可以切换到高德地图。高德底图模式会在前端把照片 GPS 从 WGS84 转成 GCJ-02。</span>
   </div>
   <form method="post" action="/settings/map" class="inline-form">
     <label>
@@ -40,7 +40,7 @@
 {% if not database_ready %}
 <section class="settings-warning">
   <strong>当前没有可用数据库</strong>
-  <span>Tagbum 只有 SQLite 是数据库；缩略图目录只是可重新生成的缓存。你可以新建/切换 profile，或为当前 profile 创建一个空数据库后再扫描相册导入。</span>
+  <span>Tagbum 目前只使用 SQLite；缩略图目录只是可重建缓存。你可以新建或切换配置，也可以先为当前配置创建一个空数据库，再扫描相册导入。</span>
   <div class="settings-actions">
     <form method="post" action="/settings/init-db">
       <button type="submit">创建空数据库</button>
@@ -75,7 +75,7 @@
           {% if item.error %}
             <span>{{ item.error }}</span>
           {% else %}
-            <span>分组 {{ item.groups_seen }}，资源新增 {{ item.resources_created }}，更新 {{ item.resources_updated }}，跳过 {{ item.resources_skipped }}</span>
+            <span>分组 {{ item.groups_seen }}，资源新建 {{ item.resources_created }}，更新 {{ item.resources_updated }}，跳过 {{ item.resources_skipped }}</span>
           {% endif %}
         </article>
       {% endfor %}
@@ -93,25 +93,25 @@
     </label>
     <label>
       数据库位置
-      <input name="database" placeholder="data\family.sqlite" data-profile-database>
+      <input name="database" placeholder="data\\family.sqlite" data-profile-database>
     </label>
     <label>
       相册目录（每行一个，只读）
-      <textarea name="albums" rows="3" placeholder="Z:\Backup\DCIM" data-profile-albums></textarea>
+      <textarea name="albums" rows="3" placeholder="Z:\\Backup\\DCIM" data-profile-albums></textarea>
     </label>
     <button type="button" data-pick-album-folder>选择相册</button>
     <label class="checkbox-label">
       <input type="checkbox" name="activate" value="true">
       创建后立即切换
     </label>
-    <button type="submit">新增 profile</button>
+    <button type="submit">新增配置</button>
   </form>
 </section>
 
 {% if not profiles %}
   <section class="empty-state">
     <h2>还没有可用数据库</h2>
-    <p>先在上方新增一个 profile，填写 SQLite 数据库位置和相册目录，然后导入或点击“立即检测相册变化”。</p>
+    <p>先在上方新增一个配置，填写 SQLite 数据库位置和相册目录，然后导入，或者点击“立即检测相册变化”。</p>
   </section>
 {% endif %}
 
