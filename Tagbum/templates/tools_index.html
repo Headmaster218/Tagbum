@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>工具箱</h1>
+    <p>这里集中放相册维护和分析工具。高风险工具会单独标记，并尽量先走隔离区而不是直接永久删除。</p>
+  </div>
+  <div class="page-count">
+    当前：{{ active_profile }}
+  </div>
+</section>
+
+<section class="tool-grid">
+  <a class="tool-card" href="/tools/duplicates">
+    <div class="tool-card-head">
+      <strong>重复图片筛选</strong>
+      <span class="chip">高风险</span>
+    </div>
+    <p>按完全相同、内容相同但元数据不同两种模式筛出重复图片，并支持隔离处理。</p>
+    <div class="tool-card-stats">
+      <span>完全重复 {{ duplicate_summary.exact_sets }} 组</span>
+      <span>元数据不同 {{ duplicate_summary.content_sets }} 组</span>
+    </div>
+    <div class="tool-card-foot">
+      <span>{{ duplicate_status.message }}</span>
+    </div>
+  </a>
+</section>
+{% endblock %}

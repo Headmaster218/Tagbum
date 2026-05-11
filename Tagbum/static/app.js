@@ -1185,6 +1185,14 @@ function galleryContextIds(source) {
     .filter(Boolean);
 }
 
+function duplicatePreviewIds(source) {
+  const scope = source?.closest("[data-duplicate-preview-scope]");
+  if (!scope) return [];
+  return [...scope.querySelectorAll("[data-open-duplicate-preview]")]
+    .map((item) => Number(item.dataset.openDuplicatePreview))
+    .filter(Boolean);
+}
+
 async function getGroupDetails(groupId) {
   const key = Number(groupId);
   if (groupCache.has(key) && groupCache.get(key).resources) return groupCache.get(key);
@@ -1627,6 +1635,30 @@ function renderScanStatus(status) {
   }
 }
 
+function renderDuplicateStatus(status) {
+  const root = document.querySelector("[data-duplicate-status]");
+  if (!root) return;
+  const message = root.querySelector("[data-duplicate-message]");
+  const detail = root.querySelector("[data-duplicate-detail]");
+  const bar = root.querySelector("[data-duplicate-progress]");
+  const label = root.querySelector("[data-duplicate-progress-label]");
+  if (message) message.textContent = status.message || "";
+  if (detail) {
+    if (status.running) {
+      detail.textContent = status.profile ? `正在分析 ${status.profile}` : "正在分析";
+    } else if (status.finished_at) {
+      detail.textContent = `完成时间：${status.finished_at}`;
+    } else {
+      detail.textContent = "";
+    }
+  }
+  const percent = status.total ? Math.max(0, Math.min(100, Math.round((Number(status.current || 0) / Number(status.total || 1)) * 100))) : 0;
+  if (bar) bar.style.width = `${percent}%`;
+  if (label) {
+    label.textContent = `${status.current || 0} / ${status.total || 0} · 缓存 ${status.cached || 0} · 完全重复 ${status.exact_sets || 0} 组 · 元数据不同 ${status.content_sets || 0} 组`;
+  }
+}
+
 function initSettingsPage() {
   if (!document.querySelector("[data-scan-status]")) return;
   const nameInput = document.querySelector("[data-profile-name]");
@@ -1670,6 +1702,28 @@ function initSettingsPage() {
     if (!response.ok) return;
     const status = await response.json();
     renderScanStatus(status);
+  };
+  poll();
+  window.setInterval(poll, 1000);
+}
+
+function initToolsPage() {
+  const root = document.querySelector("[data-duplicate-status]");
+  if (!root) return;
+  let lastRunning = root.dataset.running === "true";
+  let lastFinishedAt = root.dataset.finishedAt || "";
+  const poll = async () => {
+    const response = await fetch("/api/tools/duplicates/status", { cache: "no-store" });
+    if (!response.ok) return;
+    const status = await response.json();
+    renderDuplicateStatus(status);
+    const nextFinishedAt = status.finished_at || "";
+    if ((lastRunning && !status.running) || (!status.running && nextFinishedAt && nextFinishedAt !== lastFinishedAt)) {
+      window.location.reload();
+      return;
+    }
+    lastRunning = Boolean(status.running);
+    lastFinishedAt = nextFinishedAt;
   };
   poll();
   window.setInterval(poll, 1000);
@@ -1732,6 +1786,12 @@ document.addEventListener("click", async (event) => {
   if (mapMarker) {
     const ids = [...document.querySelectorAll("[data-map-open]")].map((item) => Number(item.dataset.mapOpen));
     await openPreview(mapMarker.dataset.mapOpen, ids);
+    return;
+  }
+
+  const duplicatePreview = event.target.closest("[data-open-duplicate-preview]");
+  if (duplicatePreview) {
+    await openPreview(duplicatePreview.dataset.openDuplicatePreview, duplicatePreviewIds(duplicatePreview));
     return;
   }
 
@@ -1962,3 +2022,4 @@ initDateStrips();
 initHomeGallery();
 initMap();
 initSettingsPage();
+initToolsPage();

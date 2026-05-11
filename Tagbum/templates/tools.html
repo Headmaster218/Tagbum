@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>重复图片筛选</h1>
+    <p>使用独立缓存库分析重复图片，不改动原始数据库结构。删除操作会先移动到隔离区，避免误删后无法回退。</p>
+  </div>
+  <div class="page-count">
+    <a class="filter-chip" href="/tools">返回工具箱</a>
+  </div>
+</section>
+
+<section class="settings-warning">
+  <strong>高风险区域</strong>
+  <span>“删除”操作被实现为移动到工作目录下的隔离区：{{ quarantine_path }}。如果某组里含有 live、video、edited、raw 等伴生资源，这一页只允许清理不带伴生资源的纯图片项。</span>
+</section>
+
+<section class="settings-summary">
+  <div>
+    <strong>重复分析缓存</strong>
+    <span>{{ cache_path }}</span>
+  </div>
+  <form method="post" action="/tools/duplicates/scan">
+    <button type="submit">重新分析重复图片</button>
+  </form>
+</section>
+
+<section class="scan-status" data-duplicate-status data-running="{{ 'true' if status.running else 'false' }}" data-finished-at="{{ status.finished_at or '' }}">
+  <strong data-duplicate-message>{{ status.message }}</strong>
+  {% if status.running %}
+    <span data-duplicate-detail>正在分析 {{ status.profile }}</span>
+  {% elif status.finished_at %}
+    <span data-duplicate-detail>完成时间：{{ status.finished_at }}</span>
+  {% else %}
+    <span data-duplicate-detail></span>
+  {% endif %}
+  <div class="scan-progress">
+    {% set duplicate_percent = ((status.current / status.total) * 100) | round(0) if status.total else 0 %}
+    <div data-duplicate-progress style="width: {{ duplicate_percent }}%"></div>
+  </div>
+  <span class="scan-progress-label" data-duplicate-progress-label>
+    {{ status.current }} / {{ status.total }} · 缓存 {{ status.cached }} · 完全重复 {{ status.exact_sets }} 组 · 元数据不同 {{ status.content_sets }} 组
+  </span>
+</section>
+
+<section class="filters">
+  <a class="filter-chip {% if mode == 'exact' %}active{% endif %}" href="/tools/duplicates?mode=exact">完全相同 <span>{{ summary.exact_sets }}</span></a>
+  <a class="filter-chip {% if mode == 'content' %}active{% endif %}" href="/tools/duplicates?mode=content">图片相同但元数据不同 <span>{{ summary.content_sets }}</span></a>
+</section>
+
+{% if results %}
+  <section class="profile-grid duplicate-grid">
+    {% for result in results %}
+      {% set form_id = "exact-form-" ~ loop.index %}
+      <article class="profile-card duplicate-card">
+        <header>
+          <div>
+            <h2>{{ result.count }} 个文件</h2>
+            <span class="muted-text">签名 {{ result.signature[:12] }}...</span>
+            {% if result.has_companions %}
+              <span class="muted-text">本组含 {{ result.companion_count }} 个带伴生资源的项，只会删除 {{ result.plain_count }} 个纯图片项。</span>
+            {% elif mode == "exact" %}
+              <span class="muted-text">请在下方选择保留项，其余将移入隔离区。</span>
+            {% endif %}
+          </div>
+          {% if mode == "exact" %}
+            {% if result.plain_count <= 0 %}
+              <span class="chip muted">没有可自动处理的纯图片项</span>
+            {% else %}
+              <form id="{{ form_id }}" method="post" action="/tools/duplicates/exact/{{ result.signature }}/apply" onsubmit="return confirm('{{ '将删除所有不带伴生资源的图片，继续吗？' if result.has_companions else '将删除除保留项外的所有图片，继续吗？' }}');">
+                <button type="submit">{{ "删除不带伴生资源的图片" if result.has_companions else "删除到只剩 1 个" }}</button>
+              </form>
+            {% endif %}
+          {% endif %}
+        </header>
+
+        <div class="duplicate-items" data-duplicate-preview-scope>
+          {% for item in result["items"] %}
+            <article class="duplicate-item">
+              <button class="duplicate-thumb duplicate-preview-trigger" type="button" data-open-duplicate-preview="{{ item.group_id }}">
+                {% if item.thumbnail_url %}
+                  <img src="{{ item.thumbnail_url }}" alt="{{ item.group_name }}">
+                {% else %}
+                  <span class="placeholder">{{ item.group_name }}</span>
+                {% endif %}
+              </button>
+              <div class="duplicate-meta">
+                <strong>{{ item.filename }}</strong>
+                <span>{{ item.group_name }}</span>
+                <span>{{ item.path }}</span>
+                <span>{{ item.width or "?" }} × {{ item.height or "?" }} · {{ item.size_bytes }} bytes</span>
+                <span>mtime: {{ item.mtime }}</span>
+                {% if item.taken_at %}<span>taken_at: {{ item.taken_at }}</span>{% endif %}
+                {% if item.companion_kinds %}
+                  <span>伴生资源：{{ item.companion_kinds | join(", ") }}</span>
+                {% endif %}
+                {% if mode == "content" %}
+                  <span>file hash: {{ item.file_sha256[:16] }}...</span>
+                  <span>pixel hash: {{ item.pixel_sha256[:16] }}...</span>
+                {% endif %}
+              </div>
+              <div class="duplicate-actions">
+                {% if mode == "exact" and not result.has_companions %}
+                  <label class="duplicate-keep-option">
+                    <input
+                      type="radio"
+                      name="keep_resource_id"
+                      value="{{ item.resource_id }}"
+                      form="{{ form_id }}"
+                      {% if loop.first %}checked{% endif %}
+                    >
+                    <span>保留此项</span>
+                  </label>
+                {% elif mode == "exact" and item.has_companions %}
+                  <span class="chip muted">保留此项</span>
+                {% elif mode == "exact" %}
+                  <span class="chip muted">将被删除</span>
+                {% endif %}
+                <a class="filter-chip" href="{{ item.url }}" target="_blank">查看原文件</a>
+                {% if mode == "content" %}
+                  {% if item.has_companions %}
+                    <span class="chip muted">含伴生资源，先人工确认</span>
+                  {% else %}
+                    <form method="post" action="/tools/duplicates/resources/{{ item.resource_id }}/quarantine" onsubmit="return confirm('将这个文件移入隔离区，继续吗？');">
+                      <input type="hidden" name="mode" value="content">
+                      <button type="submit">删除此项</button>
+                    </form>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </article>
+          {% endfor %}
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+
+  <section class="pager">
+    <nav class="pager-pages" aria-label="工具分页">
+      <a class="filter-chip {% if page <= 1 %}disabled{% endif %}" href="/tools/duplicates?mode={{ mode }}&page=1">第一页</a>
+      <a class="filter-chip {% if page <= 1 %}disabled{% endif %}" href="/tools/duplicates?mode={{ mode }}&page={{ page - 1 if page > 1 else 1 }}">上一页</a>
+      {% for number in page_window %}
+        <a class="filter-chip {% if number == page %}active{% endif %}" href="/tools/duplicates?mode={{ mode }}&page={{ number }}">{{ number }}</a>
+      {% endfor %}
+      <a class="filter-chip {% if page >= total_pages %}disabled{% endif %}" href="/tools/duplicates?mode={{ mode }}&page={{ page + 1 if page < total_pages else total_pages }}">下一页</a>
+      <a class="filter-chip {% if page >= total_pages %}disabled{% endif %}" href="/tools/duplicates?mode={{ mode }}&page={{ total_pages }}">最后一页</a>
+    </nav>
+    <div class="pager-status">第 {{ page }} / {{ total_pages }} 页，共 {{ total_sets }} 组</div>
+  </section>
+{% else %}
+  <section class="empty-state">
+    <h2>还没有结果</h2>
+    <p>先运行一次重复分析。分析完成后，这里会列出完全相同的图片，以及图片内容相同但元数据不同的图片。</p>
+  </section>
+{% endif %}
+{% endblock %}

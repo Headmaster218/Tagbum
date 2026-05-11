@@ -1388,6 +1388,128 @@ textarea {
   font-size: 13px;
 }
 
+.duplicate-grid {
+  gap: 16px;
+}
+
+.duplicate-card {
+  display: grid;
+  gap: 14px;
+}
+
+.duplicate-card header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.duplicate-card h2 {
+  margin: 0 0 4px;
+}
+
+.duplicate-items {
+  display: grid;
+  gap: 12px;
+}
+
+.duplicate-item {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #faf9f5;
+}
+
+.duplicate-thumb {
+  display: block;
+  width: 88px;
+  height: 88px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #e9e2d7;
+}
+
+.duplicate-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.duplicate-preview-trigger:hover {
+  border-color: var(--accent);
+}
+
+.duplicate-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.duplicate-meta strong {
+  overflow-wrap: anywhere;
+}
+
+.duplicate-meta span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.duplicate-actions {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.duplicate-keep-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.tool-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.tool-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 10px 24px rgba(24, 28, 24, 0.06);
+}
+
+.tool-card:hover {
+  border-color: var(--accent);
+}
+
+.tool-card-head,
+.tool-card-stats,
+.tool-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tool-card p,
+.tool-card-foot span,
+.tool-card-stats span {
+  color: var(--muted);
+}
+
 @media (max-width: 760px) {
   .topbar,
   .page-head {
@@ -1483,6 +1605,10 @@ textarea {
   .move-db-form,
   .delete-db-form,
   .new-profile-form {
+    grid-template-columns: 1fr;
+  }
+
+  .duplicate-item {
     grid-template-columns: 1fr;
   }
 

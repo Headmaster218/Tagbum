@@ -16,6 +16,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from .config import NoActiveProfile, settings
 from .db import SessionLocal, configure_database, dispose_database, get_session, init_db
+from .duplicates import (
+    cache_path as duplicate_cache_path,
+    duplicate_summary,
+    list_content_duplicate_sets,
+    list_exact_duplicate_sets,
+    quarantine_exact_keep_one,
+    quarantine_resource,
+    quarantine_root as duplicate_quarantine_root,
+    scan_duplicates,
+)
 from .importer import import_folder
 from .media import WEB_IMAGE_EXTENSIONS, build_full_preview
 from .models import AssetGroup, AssetResource, AssetTag, Tag
@@ -23,6 +33,7 @@ from .models import AssetGroup, AssetResource, AssetTag, Tag
 PACKAGE_DIR = Path(__file__).resolve().parent
 HOME_PAGE_SIZE = 72
 TAGGER_PAGE_SIZE = 80
+DUPLICATE_PAGE_SIZE = 20
 scan_lock = Lock()
 scan_status = {
     "running": False,
@@ -35,6 +46,19 @@ scan_status = {
     "total": 0,
     "percent": 0,
     "stats": [],
+}
+duplicate_lock = Lock()
+duplicate_status = {
+    "running": False,
+    "profile": "",
+    "message": "尚未分析重复图片",
+    "phase": "",
+    "current": 0,
+    "total": 0,
+    "cached": 0,
+    "exact_sets": 0,
+    "content_sets": 0,
+    "finished_at": None,
 }
 
 app = FastAPI(title="Tagbum")
@@ -159,6 +183,118 @@ def settings_page(request: Request) -> HTMLResponse:
             "map_tile_provider": settings.map_tile_provider,
         },
     )
+
+
+@app.get("/tools", response_class=HTMLResponse)
+def tools_index_page(request: Request, session: Session = Depends(get_session)) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "tools_index.html",
+        {
+            "active_profile": settings.active_profile_name,
+            "duplicate_summary": duplicate_summary(),
+            "duplicate_status": duplicate_status.copy(),
+        },
+    )
+
+
+@app.get("/tools/duplicates", response_class=HTMLResponse)
+def duplicate_tools_page(
+    request: Request,
+    mode: str = "exact",
+    page: int = 1,
+    session: Session = Depends(get_session),
+) -> HTMLResponse:
+    active_mode = mode if mode in {"exact", "content"} else "exact"
+    safe_page = max(1, page)
+    if active_mode == "exact":
+        results, total_sets = list_exact_duplicate_sets(session, page=safe_page, page_size=DUPLICATE_PAGE_SIZE)
+    else:
+        results, total_sets = list_content_duplicate_sets(session, page=safe_page, page_size=DUPLICATE_PAGE_SIZE)
+    total_pages = _total_pages(total_sets, DUPLICATE_PAGE_SIZE)
+    safe_page = min(safe_page, total_pages)
+    if safe_page != page:
+        if active_mode == "exact":
+            results, total_sets = list_exact_duplicate_sets(session, page=safe_page, page_size=DUPLICATE_PAGE_SIZE)
+        else:
+            results, total_sets = list_content_duplicate_sets(session, page=safe_page, page_size=DUPLICATE_PAGE_SIZE)
+    return templates.TemplateResponse(
+        request,
+        "tools.html",
+        {
+            "mode": active_mode,
+            "results": results,
+            "summary": duplicate_summary(),
+            "status": duplicate_status.copy(),
+            "page": safe_page,
+            "total_pages": total_pages,
+            "total_sets": total_sets,
+            "page_window": _page_window(safe_page, total_pages),
+            "cache_path": duplicate_cache_path(),
+            "quarantine_path": duplicate_quarantine_root(),
+            "active_profile": settings.active_profile_name,
+        },
+    )
+
+
+@app.post("/tools/duplicates/scan")
+def start_duplicate_scan():
+    _start_duplicate_scan(force=True)
+    return RedirectResponse(url="/tools/duplicates", status_code=303)
+
+
+@app.get("/api/tools/duplicates/status")
+def api_duplicate_status() -> dict:
+    return duplicate_status.copy()
+
+
+@app.post("/tools/duplicates/exact/{signature}/apply")
+def apply_exact_duplicate_action(
+    signature: str,
+    keep_resource_id: int | None = Form(None),
+    session: Session = Depends(get_session),
+):
+    moved = quarantine_exact_keep_one(session, signature, keep_resource_id=keep_resource_id)
+    duplicate_status.update(
+        {
+            "message": (
+                f"已移动 {moved['moved']} 个纯图片重复项到隔离区"
+                if moved["mode"] == "remove_plain_only"
+                else f"已移动 {moved['moved']} 个完全重复文件到隔离区，保留了选中的 1 个"
+            ),
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    return RedirectResponse(url="/tools/duplicates?mode=exact", status_code=303)
+
+
+@app.post("/tools/duplicates/exact/{signature}/quarantine-half")
+def quarantine_exact_duplicate_half(
+    signature: str,
+    keep_resource_id: int | None = Form(None),
+    session: Session = Depends(get_session),
+):
+    moved = quarantine_exact_keep_one(session, signature, keep_resource_id=keep_resource_id)
+    duplicate_status.update(
+        {
+            "message": f"已移动 {moved['moved']} 个完全重复文件到隔离区",
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    return RedirectResponse(url="/tools?mode=exact", status_code=303)
+
+
+@app.post("/tools/duplicates/resources/{resource_id}/quarantine")
+def quarantine_duplicate_resource(resource_id: int, mode: str = Form("content"), session: Session = Depends(get_session)):
+    moved = quarantine_resource(session, resource_id)
+    duplicate_status.update(
+        {
+            "message": "已移动 1 个文件到隔离区" if moved else "文件不存在，已清理数据库记录",
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+    next_mode = mode if mode in {"exact", "content"} else "content"
+    return RedirectResponse(url=f"/tools/duplicates?mode={next_mode}", status_code=303)
 
 
 @app.post("/settings/map")
@@ -604,6 +740,28 @@ def start_album_scan(force: bool = False, allow_create: bool = False) -> None:
     Thread(target=_scan_albums_worker, args=(profile_name, albums), daemon=True).start()
 
 
+def _start_duplicate_scan(force: bool = False) -> None:
+    if duplicate_lock.locked() and not force:
+        return
+    if not settings.profile_names:
+        duplicate_status.update(
+            {
+                "running": False,
+                "profile": "",
+                "message": "还没有数据库，无法分析重复图片",
+                "phase": "",
+                "current": 0,
+                "total": 0,
+                "cached": 0,
+                "exact_sets": 0,
+                "content_sets": 0,
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+        return
+    Thread(target=_duplicate_worker, args=(settings.active_profile_name,), daemon=True).start()
+
+
 def _scan_albums_worker(profile_name: str, albums: list[Path]) -> None:
     if not scan_lock.acquire(blocking=False):
         return
@@ -653,6 +811,83 @@ def _scan_albums_worker(profile_name: str, albums: list[Path]) -> None:
         )
     finally:
         scan_lock.release()
+
+
+def _duplicate_worker(profile_name: str) -> None:
+    if not duplicate_lock.acquire(blocking=False):
+        return
+    duplicate_status.update(
+        {
+            "running": True,
+            "profile": profile_name,
+            "message": "正在分析重复图片",
+            "phase": "starting",
+            "current": 0,
+            "total": 0,
+            "cached": 0,
+            "finished_at": None,
+        }
+    )
+    try:
+        configure_database(profile_name)
+        session = SessionLocal()
+        try:
+            summary = scan_duplicates(session, progress_callback=_update_duplicate_progress)
+        finally:
+            session.close()
+        duplicate_status.update(
+            {
+                "running": False,
+                "profile": profile_name,
+                "message": f"分析完成：完全重复 {summary['exact_sets']} 组，内容相同但元数据不同 {summary['content_sets']} 组",
+                "phase": "done",
+                "current": summary["images"],
+                "total": summary["images"],
+                "cached": summary["images"] - summary["rehashed"],
+                "exact_sets": summary["exact_sets"],
+                "content_sets": summary["content_sets"],
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+    except Exception as exc:
+        duplicate_status.update(
+            {
+                "running": False,
+                "profile": profile_name,
+                "message": f"重复分析失败: {exc}",
+                "phase": "error",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }
+        )
+    finally:
+        duplicate_lock.release()
+
+
+def _update_duplicate_progress(payload: dict) -> None:
+    current = int(payload.get("current", 0) or 0)
+    total = int(payload.get("total", 0) or 0)
+    phase = str(payload.get("phase", "") or "")
+    cached = int(payload.get("cached", 0) or 0)
+    exact_sets = int(payload.get("exact_sets", duplicate_status.get("exact_sets", 0)) or 0)
+    content_sets = int(payload.get("content_sets", duplicate_status.get("content_sets", 0)) or 0)
+    if phase == "hashing":
+        message = f"正在计算哈希，已缓存 {cached} 张"
+    elif phase == "done":
+        message = "重复分析完成"
+    else:
+        message = "正在准备重复分析"
+    duplicate_status.update(
+        {
+            "running": phase != "done",
+            "phase": phase,
+            "current": current,
+            "total": total,
+            "cached": cached,
+            "exact_sets": exact_sets,
+            "content_sets": content_sets,
+            "message": message,
+        }
+    )
 
 
 def _scan_progress_callback(progress: dict) -> None:
