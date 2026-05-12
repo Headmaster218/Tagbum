@@ -170,6 +170,13 @@ class Settings:
         return profile.database.parent / f"{profile.database.stem}_thumbnails"
 
     @property
+    def video_cache_dir(self) -> Path:
+        profile = self.active_profile
+        if profile.database == (PROJECT_ROOT / "data" / "tagbum.sqlite").resolve():
+            return PROJECT_ROOT / "data" / "video_cache"
+        return profile.database.parent / f"{profile.database.stem}_video_cache"
+
+    @property
     def album_paths(self) -> list[Path]:
         return self.active_profile.albums
 

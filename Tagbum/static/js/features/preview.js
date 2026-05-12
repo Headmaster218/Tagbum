@@ -48,6 +48,10 @@ function applyPreviewAudio(video, { allowUnmute = true } = {}) {
   video.muted = allowUnmute ? previewState.muted : true;
 }
 
+function playbackUrl(resource) {
+  return resource?.preview_url || resource?.url;
+}
+
 function ensureModal() {
   let modal = document.querySelector(".modal");
   if (modal) return modal;
@@ -165,7 +169,7 @@ function renderModalResource(group, resource) {
     };
     if (hasLivePair) hint.hidden = false;
   } else if (resource.kind === "live" || resource.kind === "video") {
-    live.src = resource.url;
+    live.src = playbackUrl(resource);
     live.hidden = false;
     live.currentTime = 0;
     applyPreviewAudio(live, { allowUnmute: true });
@@ -258,7 +262,7 @@ export function startModalLive() {
   live.hidden = false;
   live.controls = false;
   live.loop = true;
-  live.src = liveResource.url;
+  live.src = playbackUrl(liveResource);
   live.currentTime = 0;
   applyPreviewAudio(live, { allowUnmute: true });
   applyPreviewTransform();

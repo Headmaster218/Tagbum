@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 import json
 import math
+from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import Select, and_, false, func, not_, or_, select, true
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ...media import WEB_IMAGE_EXTENSIONS
 from ...models import AssetGroup, AssetResource, AssetTag, Tag
+from .media import is_web_native_video
 
 
 def fallback_taken_at_expr():
@@ -446,6 +448,8 @@ def kind_sort_key(kind: str) -> tuple[int, str]:
 
 
 def preview_url(resource: AssetResource) -> str:
+    if resource.kind == "video":
+        return f"/video-stream/{resource.id}" if not is_web_native_video(Path(resource.path)) else f"/media/{resource.id}"
     if resource.kind != "image":
         return f"/media/{resource.id}"
     if resource.extension in WEB_IMAGE_EXTENSIONS:

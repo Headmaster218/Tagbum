@@ -25,7 +25,7 @@ from ..services.gallery import (
     normalize_filter_expression,
     resolve_offset_for_date,
 )
-from ..services.media import range_file_response
+from ..services.media import playable_video_path, range_file_response
 
 
 router = APIRouter()
@@ -198,6 +198,20 @@ def media(resource_id: int, request: Request, session: Session = Depends(get_ses
     if resource.kind == "video":
         return range_file_response(path, request.headers.get("range"))
     return FileResponse(path)
+
+
+@router.get("/video-stream/{resource_id}")
+def video_stream(resource_id: int, request: Request, session: Session = Depends(get_session)) -> Response:
+    resource = session.get(AssetResource, resource_id)
+    if resource is None:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    if resource.kind != "video":
+        raise HTTPException(status_code=400, detail="Resource is not a video")
+    source = Path(resource.path)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="File missing")
+    playable = playable_video_path(source, resource.id)
+    return range_file_response(playable, request.headers.get("range"), media_type="video/mp4" if playable.suffix.lower() == ".mp4" else None)
 
 
 @router.get("/previews/{resource_id}.jpg")
