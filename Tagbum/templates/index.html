@@ -1,42 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head home-head">
-  <div>
-    <h1>主界面</h1>
-    <p>按时间连续浏览资源组，向下滚动时分段加载；右侧时间轴用于按日期快速定位。</p>
-  </div>
-  <div class="page-count" data-home-count>
-    0 / {{ total_groups }}
-  </div>
-</section>
-
-<section
-  class="home-layout"
-  data-home-gallery-root
-  data-total-groups="{{ total_groups }}"
-  data-page-size="{{ page_size }}"
-  data-initial-offset="{{ initial_offset }}"
-  data-current-date="{{ current_date }}"
->
-  <div class="home-stream-column">
-    <section class="home-gallery" data-home-gallery></section>
-    <div class="home-gallery-status" data-home-gallery-status>准备加载</div>
-    <div class="home-gallery-sentinel" data-home-gallery-sentinel aria-hidden="true"></div>
-  </div>
-
-  <aside class="home-timeline-rail">
-    <div class="home-timeline-panel">
-      <div class="home-timeline-head">
-        <strong data-home-timeline-label>选择日期</strong>
-        <button type="button" data-home-timeline-jump>跳转</button>
-      </div>
-      <div class="home-timeline-shell">
-        <div class="home-timeline-ruler">
-          <span data-home-timeline-current>--</span>
-        </div>
-        <div class="home-timeline" data-home-timeline></div>
-      </div>
+<section class="gallery-screen">
+  <section class="page-head home-head">
+    <div>
+      <h1>主界面</h1>
+      <p>按时间连续浏览资源组，支持向上和向下双向加载；右侧时间轴用于按日期快速定位。</p>
     </div>
-  </aside>
+    <div class="page-count" data-home-count>
+      0 / {{ total_groups }}
+    </div>
+  </section>
+
+  <section
+    class="home-layout"
+    data-home-gallery-root
+    data-total-groups="{{ total_groups }}"
+    data-page-size="{{ page_size }}"
+    data-initial-offset="{{ initial_offset }}"
+    data-current-date="{{ current_date }}"
+  >
+    <div class="home-stream-column">
+      <div class="home-stream-scroll" data-home-scroll>
+        <div class="home-gallery-sentinel top" data-home-gallery-sentinel-top aria-hidden="true"></div>
+        <section class="home-gallery" data-home-gallery></section>
+        <div class="home-gallery-sentinel bottom" data-home-gallery-sentinel-bottom aria-hidden="true"></div>
+      </div>
+      <div class="home-gallery-status" data-home-gallery-status>准备加载</div>
+    </div>
+
+    <aside class="home-timeline-rail">
+      <div class="home-timeline-panel">
+        <div class="home-timeline-head">
+          <strong data-home-timeline-label>选择日期</strong>
+          <button type="button" data-home-timeline-jump>跳转</button>
+        </div>
+        <div class="home-timeline-shell">
+          <div class="home-timeline-ruler">
+            <span data-home-timeline-current>--</span>
+          </div>
+          <div class="home-timeline" data-home-timeline></div>
+        </div>
+      </div>
+    </aside>
+  </section>
 </section>
 {% endblock %}

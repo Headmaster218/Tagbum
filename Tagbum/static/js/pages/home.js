@@ -30,44 +30,81 @@ function renderAssetCard(group) {
   `;
 }
 
-function renderHomeMonthDivider(monthKey) {
-  return `<div class="gallery-month-divider" data-month-key="${monthKey}"><span>${escapeHtml(formatMonthTitle(monthKey))}</span></div>`;
-}
-
-function renderHomePageSection(groups, offset, sectionIndex) {
-  let previousMonth = homeState.lastMonthKey;
+function renderSection(groups, offset, sectionNumber, previousMonthKey) {
+  let previousMonth = previousMonthKey;
   const cards = groups.map((group) => {
     const monthKey = formatMonthKey(group.taken_at);
-    const divider = monthKey !== previousMonth ? renderHomeMonthDivider(monthKey) : "";
+    const divider = monthKey !== previousMonth
+      ? `<div class="gallery-month-divider" data-month-key="${monthKey}"><span>${escapeHtml(formatMonthTitle(monthKey))}</span></div>`
+      : "";
     previousMonth = monthKey;
     return `${divider}${renderAssetCard(group)}`;
   }).join("");
-  homeState.lastMonthKey = previousMonth;
-  return `
-    <section class="gallery-page-section" data-home-page="${sectionIndex}" data-home-offset="${offset}">
-      <div class="gallery-page-divider"><span>第 ${sectionIndex} 段</span></div>
-      <div class="gallery">${cards}</div>
-    </section>
-  `;
+  return {
+    html: `
+      <section class="gallery-page-section" data-home-page="${sectionNumber}" data-home-offset="${offset}">
+        <div class="gallery-page-divider"><span>第 ${sectionNumber} 段</span></div>
+        <div class="gallery">${cards}</div>
+      </section>
+    `,
+    lastMonthKey: previousMonth,
+  };
 }
 
-function updateHomeStatus(text) {
+function sortedChunkOffsets() {
+  return [...homeState.chunks.keys()].sort((a, b) => a - b);
+}
+
+function loadedCount() {
+  return sortedChunkOffsets().reduce((total, offset) => total + (homeState.chunks.get(offset)?.length || 0), 0);
+}
+
+function updateStatus(text) {
   const status = document.querySelector("[data-home-gallery-status]");
   if (status) status.textContent = text;
 }
 
-function updateHomeCount() {
+function updateCount() {
   const count = document.querySelector("[data-home-count]");
-  if (!count) return;
-  const loaded = document.querySelectorAll("[data-home-gallery] [data-group-id]").length;
-  count.textContent = `${loaded} / ${homeState.total}`;
+  if (count) count.textContent = `${loadedCount()} / ${homeState.total}`;
 }
 
-function currentHomeCards() {
+function currentCards() {
   return [...document.querySelectorAll("[data-home-gallery] [data-group-id]")];
 }
 
-function updateHomeTimelineMarker(value) {
+function currentScrollRoot() {
+  return document.querySelector("[data-home-scroll]");
+}
+
+function attachGalleryWheel() {
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot || scrollRoot.dataset.wheelBound === "true") return;
+  scrollRoot.dataset.wheelBound = "true";
+  scrollRoot.addEventListener("wheel", (event) => {
+    const canScroll = scrollRoot.scrollHeight > scrollRoot.clientHeight + 1;
+    if (!canScroll) return;
+    event.preventDefault();
+    scrollRoot.scrollTop += event.deltaY || event.deltaX;
+  }, { capture: true, passive: false });
+}
+
+function renderGallery() {
+  const container = document.querySelector("[data-home-gallery]");
+  if (!container) return;
+  let previousMonth = null;
+  const html = sortedChunkOffsets().map((offset) => {
+    const groups = homeState.chunks.get(offset) || [];
+    const sectionNumber = Math.floor(offset / homeState.pageSize) + 1;
+    const rendered = renderSection(groups, offset, sectionNumber, previousMonth);
+    previousMonth = rendered.lastMonthKey;
+    return rendered.html;
+  }).join("");
+  container.innerHTML = html;
+  updateCount();
+}
+
+function updateTimelineMarker(value) {
   const timeline = document.querySelector("[data-home-timeline]");
   const label = document.querySelector("[data-home-timeline-label]");
   if (!timeline || !value) return;
@@ -78,19 +115,17 @@ function updateHomeTimelineMarker(value) {
   if (label) label.textContent = text;
 }
 
-function syncHomeTimelineToDate(value, recenter = true) {
+function syncTimelineToDate(value, recenter = true) {
   const timeline = document.querySelector("[data-home-timeline]");
   if (!timeline || !value) return;
   const cell = timeline.querySelector(`[data-date="${CSS.escape(value)}"]`);
   if (!cell) return;
   timeline.dataset.selectedDate = value;
-  updateHomeTimelineMarker(value);
-  if (recenter) {
-    timeline.scrollTop = Math.max(0, cell.offsetTop + cell.offsetHeight / 2 - timeline.clientHeight / 2);
-  }
+  updateTimelineMarker(value);
+  if (recenter) timeline.scrollTop = Math.max(0, cell.offsetTop + cell.offsetHeight / 2 - timeline.clientHeight / 2);
 }
 
-function selectedHomeTimelineCell() {
+function selectedTimelineCell() {
   const timeline = document.querySelector("[data-home-timeline]");
   if (!timeline) return null;
   const cells = [...timeline.querySelectorAll("[data-date]")];
@@ -103,85 +138,128 @@ function selectedHomeTimelineCell() {
   }, cells[0]);
 }
 
-function updateHomeTimelineFromCenter(recenter = false) {
-  const cell = selectedHomeTimelineCell();
+function updateTimelineFromCenter(recenter = false) {
+  const cell = selectedTimelineCell();
   if (!cell) return;
   homeState.requestedDate = cell.dataset.date;
-  updateHomeTimelineMarker(cell.dataset.date);
-  if (recenter) syncHomeTimelineToDate(cell.dataset.date, true);
+  updateTimelineMarker(cell.dataset.date);
+  if (recenter) syncTimelineToDate(cell.dataset.date, true);
 }
 
-async function jumpHomeToDate(rawDate) {
+function currentVisibleDate() {
+  const cards = currentCards();
+  if (!cards.length) return "";
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot) return "";
+  const rootRect = scrollRoot.getBoundingClientRect();
+  const threshold = rootRect.top + 96;
+  const candidate = cards.find((card) => card.getBoundingClientRect().bottom > threshold);
+  return candidate?.dataset.takenAt?.slice(0, 10) || cards[0].dataset.takenAt?.slice(0, 10) || "";
+}
+
+function updateTimelineFromScroll() {
+  const value = currentVisibleDate();
+  if (!value || homeState.timelineDragging) return;
+  syncTimelineToDate(resolveDateBucket(homeState.timelineItems, value)?.date || value, true);
+}
+
+async function fetchChunk(offset) {
+  const response = await fetch(`/api/groups?offset=${offset}&limit=${homeState.pageSize}`, { cache: "no-store" });
+  const groups = await response.json();
+  groups.forEach((group) => groupCache.set(Number(group.id), group));
+  return groups;
+}
+
+async function loadChunk(offset, mode = "append", focusOffset = null) {
+  if (homeState.loadingOffsets.has(offset)) return;
+  if (offset < 0 || offset >= homeState.total) return;
+  if (homeState.chunks.has(offset)) return;
+  homeState.loadingOffsets.add(offset);
+  updateStatus(mode === "prepend" ? "正在向上加载..." : "正在加载...");
+  const scrollRoot = currentScrollRoot();
+  const beforeHeight = scrollRoot?.scrollHeight || 0;
+  const beforeScrollTop = scrollRoot?.scrollTop || 0;
+  const groups = await fetchChunk(offset);
+  homeState.loadingOffsets.delete(offset);
+  if (!groups.length) {
+    if (mode === "prepend") homeState.reachedTop = true;
+    else homeState.reachedBottom = true;
+    updateStatus(loadedCount() ? "已加载当前可见范围" : "还没有已索引的照片。");
+    return;
+  }
+  homeState.chunks.set(offset, groups);
+  homeState.reachedTop = sortedChunkOffsets()[0] <= 0;
+  homeState.reachedBottom = sortedChunkOffsets().at(-1) + groups.length >= homeState.total;
+  renderGallery();
+  if (mode === "prepend" && scrollRoot) {
+    const afterHeight = scrollRoot.scrollHeight;
+    scrollRoot.scrollTop = beforeScrollTop + (afterHeight - beforeHeight);
+  }
+  if (focusOffset !== null && scrollRoot) {
+    const chunk = homeState.chunks.get(offset) || [];
+    const focusIndex = Math.max(0, Math.min(chunk.length - 1, focusOffset - offset));
+    const focusGroup = chunk[focusIndex];
+    scrollRoot.querySelector(`[data-group-id="${focusGroup.id}"]`)?.scrollIntoView({ block: "start" });
+  }
+  updateStatus(homeState.reachedTop && homeState.reachedBottom ? "已加载全部内容" : "继续滚动以加载更多");
+  updateTimelineFromScroll();
+}
+
+async function ensureViewportFilled() {
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot) return;
+  let attempts = 0;
+  let previousHeight = scrollRoot.scrollHeight;
+  while (!homeState.reachedBottom && scrollRoot.scrollHeight <= scrollRoot.clientHeight + 120 && attempts < 4) {
+    const lastOffset = sortedChunkOffsets().at(-1);
+    if (!Number.isFinite(lastOffset)) break;
+    const lastLength = homeState.chunks.get(lastOffset)?.length || 0;
+    await loadChunk(lastOffset + lastLength, "append");
+    attempts += 1;
+    if (scrollRoot.scrollHeight <= previousHeight) break;
+    previousHeight = scrollRoot.scrollHeight;
+  }
+}
+
+async function resetGallery(offset = 0, requestedDate = "", focusOffset = null) {
+  homeState.chunks = new Map();
+  homeState.loadingOffsets = new Set();
+  homeState.reachedTop = false;
+  homeState.reachedBottom = false;
+  homeState.requestedDate = requestedDate;
+  renderGallery();
+  await loadChunk(offset, "replace", focusOffset);
+  await ensureViewportFilled();
+}
+
+async function maybeLoadAroundScroll() {
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot) return;
+  if (scrollRoot.scrollTop < 360 && !homeState.reachedTop) {
+    const firstOffset = sortedChunkOffsets()[0];
+    if (Number.isFinite(firstOffset)) {
+      await loadChunk(Math.max(0, firstOffset - homeState.pageSize), "prepend");
+    }
+  }
+  if (scrollRoot.scrollHeight - scrollRoot.scrollTop - scrollRoot.clientHeight < 900 && !homeState.reachedBottom) {
+    const lastOffset = sortedChunkOffsets().at(-1);
+    if (Number.isFinite(lastOffset)) {
+      const lastLength = homeState.chunks.get(lastOffset)?.length || 0;
+      await loadChunk(lastOffset + lastLength, "append");
+    }
+  }
+}
+
+async function jumpToDate(rawDate) {
   if (!rawDate) return;
   const response = await fetch(`/api/position?jump_date=${encodeURIComponent(rawDate)}`);
   if (!response.ok) return;
   const payload = await response.json();
   const pageOffset = Math.max(0, Math.floor((payload.offset || 0) / homeState.pageSize) * homeState.pageSize);
-  await resetHomeGallery(pageOffset, rawDate, payload.offset || 0);
+  await resetGallery(pageOffset, rawDate, payload.offset || 0);
 }
 
-function currentVisibleHomeDate() {
-  const cards = currentHomeCards();
-  if (!cards.length) return "";
-  const threshold = 96;
-  const candidate = cards.find((card) => card.getBoundingClientRect().bottom > threshold);
-  return candidate?.dataset.takenAt?.slice(0, 10) || cards[0].dataset.takenAt?.slice(0, 10) || "";
-}
-
-function updateHomeTimelineFromScroll() {
-  const value = currentVisibleHomeDate();
-  if (!value || homeState.timelineDragging) return;
-  syncHomeTimelineToDate(resolveDateBucket(homeState.timelineItems, value)?.date || value, true);
-}
-
-async function loadHomePage(offset, append = true, focusOffset = null) {
-  if (homeState.loading || homeState.done) return;
-  homeState.loading = true;
-  updateHomeStatus("正在加载...");
-  const response = await fetch(`/api/groups?offset=${offset}&limit=${homeState.pageSize}`, { cache: "no-store" });
-  const groups = await response.json();
-  groups.forEach((group) => groupCache.set(Number(group.id), group));
-  const container = document.querySelector("[data-home-gallery]");
-  if (!container) return;
-  if (!append) container.innerHTML = "";
-  if (!groups.length) {
-    homeState.done = true;
-    homeState.loading = false;
-    updateHomeStatus(container.children.length ? "已加载全部内容" : "还没有索引照片。");
-    updateHomeCount();
-    return;
-  }
-  homeState.pageNumber += 1;
-  container.insertAdjacentHTML("beforeend", renderHomePageSection(groups, offset, homeState.pageNumber));
-  homeState.nextOffset = offset + groups.length;
-  homeState.done = homeState.nextOffset >= homeState.total;
-  homeState.loading = false;
-  updateHomeCount();
-  updateHomeStatus(homeState.done ? "已加载全部内容" : "继续向下滚动以加载更多");
-  if (focusOffset !== null) {
-    const focusIndex = Math.max(0, Math.min(groups.length - 1, focusOffset - offset));
-    const focusGroup = groups[focusIndex];
-    const card = container.querySelector(`[data-group-id="${focusGroup.id}"]`);
-    card?.scrollIntoView({ block: "start" });
-  }
-  updateHomeTimelineFromScroll();
-}
-
-async function resetHomeGallery(offset = 0, requestedDate = "", focusOffset = null) {
-  homeState.nextOffset = offset;
-  homeState.done = false;
-  homeState.loading = false;
-  homeState.pageNumber = Math.floor(offset / homeState.pageSize);
-  homeState.lastMonthKey = null;
-  homeState.requestedDate = requestedDate;
-  await loadHomePage(offset, false, focusOffset);
-}
-
-function buildHomeTimelineItems(dates) {
-  return compactDateItems(dates, 5);
-}
-
-function sizeHomeTimeline() {
+function sizeTimeline() {
   const timeline = document.querySelector("[data-home-timeline]");
   if (!timeline) return;
   const inset = Math.max(0, timeline.clientHeight / 2 - 3);
@@ -189,7 +267,7 @@ function sizeHomeTimeline() {
   timeline.style.paddingBottom = `${inset}px`;
 }
 
-function renderHomeTimeline(items) {
+function renderTimeline(items) {
   const timeline = document.querySelector("[data-home-timeline]");
   if (!timeline) return;
   homeState.timelineItems = items;
@@ -212,18 +290,18 @@ function renderHomeTimeline(items) {
   }).join("");
 }
 
-function attachHomeTimelineEvents() {
+function attachTimelineEvents() {
   const timeline = document.querySelector("[data-home-timeline]");
   if (!timeline) return;
   let scrollTimer = null;
   timeline.addEventListener("wheel", (event) => {
     event.preventDefault();
     timeline.scrollTop += event.deltaY || event.deltaX;
-    updateHomeTimelineFromCenter(false);
-  }, { passive: false });
+    updateTimelineFromCenter(false);
+  }, { capture: true, passive: false });
   timeline.addEventListener("scroll", () => {
     window.clearTimeout(scrollTimer);
-    scrollTimer = window.setTimeout(() => updateHomeTimelineFromCenter(false), 40);
+    scrollTimer = window.setTimeout(() => updateTimelineFromCenter(false), 40);
   });
   timeline.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
@@ -245,12 +323,12 @@ function attachHomeTimelineEvents() {
     homeState.timelineDragging = false;
     timeline.releasePointerCapture(event.pointerId);
     timeline.classList.remove("dragging");
-    updateHomeTimelineFromCenter(false);
+    updateTimelineFromCenter(false);
     const cell = event.target.closest("[data-date]");
     if (cell && !homeState.timelineMoved) {
       homeState.requestedDate = cell.dataset.date;
-      syncHomeTimelineToDate(cell.dataset.date, true);
-      await jumpHomeToDate(cell.dataset.date);
+      syncTimelineToDate(cell.dataset.date, true);
+      await jumpToDate(cell.dataset.date);
     }
   });
   timeline.addEventListener("pointercancel", () => {
@@ -258,49 +336,58 @@ function attachHomeTimelineEvents() {
     timeline.classList.remove("dragging");
   });
   document.querySelector("[data-home-timeline-jump]")?.addEventListener("click", async () => {
-    const selected = selectedHomeTimelineCell();
+    const selected = selectedTimelineCell();
     if (!selected) return;
-    homeState.requestedDate = selected.dataset.date;
-    await jumpHomeToDate(selected.dataset.date);
+    await jumpToDate(selected.dataset.date);
   });
 }
 
 export async function initHomeGallery() {
   const root = document.querySelector("[data-home-gallery-root]");
-  if (!root) return;
+  const scrollRoot = currentScrollRoot();
+  if (!root || !scrollRoot) return;
   homeState.total = Number(root.dataset.totalGroups || 0);
   homeState.pageSize = Number(root.dataset.pageSize || 72);
-  const initialOffset = Number(root.dataset.initialOffset || 0);
+  homeState.chunks = new Map();
+  homeState.loadingOffsets = new Set();
+  homeState.reachedTop = false;
+  homeState.reachedBottom = false;
+
   const timelineResponse = await fetch("/api/dates", { cache: "no-store" });
   const timelinePayload = await timelineResponse.json();
-  const items = buildHomeTimelineItems(timelinePayload.dates || []);
-  renderHomeTimeline(items);
-  sizeHomeTimeline();
-  attachHomeTimelineEvents();
+  const items = compactDateItems(timelinePayload.dates || [], 5);
+  renderTimeline(items);
+  sizeTimeline();
+  attachTimelineEvents();
+  attachGalleryWheel();
+
+  const initialOffset = Number(root.dataset.initialOffset || 0);
   const initialDate = root.dataset.currentDate || timelinePayload.max_date || "";
   const initialBucket = resolveDateBucket(items, initialDate);
   if (initialBucket) {
     homeState.requestedDate = initialBucket.date;
-    syncHomeTimelineToDate(initialBucket.date, true);
+    syncTimelineToDate(initialBucket.date, true);
   }
+
   if (homeState.total <= 0) {
-    updateHomeStatus("还没有索引照片。");
-    updateHomeCount();
+    updateStatus("还没有已索引的照片。");
+    updateCount();
     return;
   }
-  await resetHomeGallery(initialOffset, initialDate, initialOffset);
-  const sentinel = document.querySelector("[data-home-gallery-sentinel]");
-  if (sentinel) {
-    const observer = new IntersectionObserver(async (entries) => {
-      const entry = entries[0];
-      if (!entry?.isIntersecting || homeState.loading || homeState.done) return;
-      await loadHomePage(homeState.nextOffset, true);
-    }, { rootMargin: "1200px 0px 1200px 0px" });
-    observer.observe(sentinel);
-  }
-  window.addEventListener("scroll", () => updateHomeTimelineFromScroll(), { passive: true });
+
+  await resetGallery(initialOffset, initialDate, initialOffset);
+
+  let scrollTimer = null;
+  scrollRoot.addEventListener("scroll", () => {
+    window.clearTimeout(scrollTimer);
+    scrollTimer = window.setTimeout(async () => {
+      updateTimelineFromScroll();
+      await maybeLoadAroundScroll();
+    }, 30);
+  }, { passive: true });
+
   window.addEventListener("resize", () => {
-    sizeHomeTimeline();
-    updateHomeTimelineFromScroll();
+    sizeTimeline();
+    updateTimelineFromScroll();
   });
 }

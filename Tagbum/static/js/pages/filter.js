@@ -9,6 +9,8 @@ import {
   resolveDateBucket,
 } from "../core/shared.js";
 
+const FILTER_MINIFY_KEY = "tagbum.filterBuilderMinified";
+
 function readJsonScript(selector) {
   const node = document.querySelector(selector);
   if (!node) return null;
@@ -64,11 +66,6 @@ function resourceOptionList() {
 
 function tagOptionList() {
   return filterState.tagOptions || [];
-}
-
-function resourceLabel(value) {
-  const match = resourceOptionList().find(([optionValue]) => optionValue === value);
-  return match?.[1] || value;
 }
 
 function updateExpressionAtPath(path, updater) {
@@ -163,17 +160,19 @@ function renderGroup(node, path = [], isRoot = false) {
   `;
 }
 
+function setBuilderMinified(minified) {
+  const root = document.querySelector("[data-filter-builder-root]");
+  const toggle = document.querySelector("[data-filter-toggle-minify]");
+  if (!root || !toggle) return;
+  root.classList.toggle("is-minified", minified);
+  toggle.textContent = minified ? "展开" : "收起";
+  localStorage.setItem(FILTER_MINIFY_KEY, minified ? "true" : "false");
+}
+
 function renderBuilder() {
   const tree = document.querySelector("[data-filter-builder-tree]");
   if (!tree) return;
   tree.innerHTML = renderGroup(currentExpression(), [], true);
-}
-
-function expressionQueryString() {
-  const expression = serializeExpression();
-  const query = new URLSearchParams();
-  query.set("filter_expr", expression);
-  return query.toString();
 }
 
 function renderAssetCard(group) {
@@ -197,25 +196,64 @@ function renderAssetCard(group) {
   `;
 }
 
-function renderMonthDivider(monthKey) {
-  return `<div class="gallery-month-divider" data-month-key="${monthKey}"><span>${escapeHtml(formatMonthTitle(monthKey))}</span></div>`;
-}
-
-function renderSection(groups, offset, sectionIndex) {
-  let previousMonth = filterState.lastMonthKey;
+function renderSection(groups, offset, sectionNumber, previousMonthKey) {
+  let previousMonth = previousMonthKey;
   const cards = groups.map((group) => {
     const monthKey = formatMonthKey(group.taken_at);
-    const divider = monthKey !== previousMonth ? renderMonthDivider(monthKey) : "";
+    const divider = monthKey !== previousMonth
+      ? `<div class="gallery-month-divider" data-month-key="${monthKey}"><span>${escapeHtml(formatMonthTitle(monthKey))}</span></div>`
+      : "";
     previousMonth = monthKey;
     return `${divider}${renderAssetCard(group)}`;
   }).join("");
-  filterState.lastMonthKey = previousMonth;
-  return `
-    <section class="gallery-page-section" data-filter-page="${sectionIndex}" data-filter-offset="${offset}">
-      <div class="gallery-page-divider"><span>第 ${sectionIndex} 段</span></div>
-      <div class="gallery">${cards}</div>
-    </section>
-  `;
+  return {
+    html: `
+      <section class="gallery-page-section" data-filter-page="${sectionNumber}" data-filter-offset="${offset}">
+        <div class="gallery-page-divider"><span>第 ${sectionNumber} 段</span></div>
+        <div class="gallery">${cards}</div>
+      </section>
+    `,
+    lastMonthKey: previousMonth,
+  };
+}
+
+function currentScrollRoot() {
+  return document.querySelector("[data-filter-scroll]");
+}
+
+function attachGalleryWheel() {
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot || scrollRoot.dataset.wheelBound === "true") return;
+  scrollRoot.dataset.wheelBound = "true";
+  scrollRoot.addEventListener("wheel", (event) => {
+    const canScroll = scrollRoot.scrollHeight > scrollRoot.clientHeight + 1;
+    if (!canScroll) return;
+    event.preventDefault();
+    scrollRoot.scrollTop += event.deltaY || event.deltaX;
+  }, { capture: true, passive: false });
+}
+
+function sortedChunkOffsets() {
+  return [...filterState.chunks.keys()].sort((a, b) => a - b);
+}
+
+function loadedCount() {
+  return sortedChunkOffsets().reduce((total, offset) => total + (filterState.chunks.get(offset)?.length || 0), 0);
+}
+
+function renderGallery() {
+  const container = document.querySelector("[data-filter-gallery]");
+  if (!container) return;
+  let previousMonth = null;
+  const html = sortedChunkOffsets().map((offset) => {
+    const groups = filterState.chunks.get(offset) || [];
+    const sectionNumber = Math.floor(offset / filterState.pageSize) + 1;
+    const rendered = renderSection(groups, offset, sectionNumber, previousMonth);
+    previousMonth = rendered.lastMonthKey;
+    return rendered.html;
+  }).join("");
+  container.innerHTML = html;
+  updateCount();
 }
 
 function updateStatus(text) {
@@ -225,9 +263,7 @@ function updateStatus(text) {
 
 function updateCount() {
   const count = document.querySelector("[data-filter-count]");
-  if (!count) return;
-  const loaded = document.querySelectorAll("[data-filter-gallery] [data-group-id]").length;
-  count.textContent = `${loaded} / ${filterState.total}`;
+  if (count) count.textContent = `${loadedCount()} / ${filterState.total}`;
 }
 
 function currentCards() {
@@ -252,9 +288,7 @@ function syncTimelineToDate(value, recenter = true) {
   if (!cell) return;
   timeline.dataset.selectedDate = value;
   updateTimelineMarker(value);
-  if (recenter) {
-    timeline.scrollTop = Math.max(0, cell.offsetTop + cell.offsetHeight / 2 - timeline.clientHeight / 2);
-  }
+  if (recenter) timeline.scrollTop = Math.max(0, cell.offsetTop + cell.offsetHeight / 2 - timeline.clientHeight / 2);
 }
 
 function selectedTimelineCell() {
@@ -278,22 +312,13 @@ function updateTimelineFromCenter(recenter = false) {
   if (recenter) syncTimelineToDate(cell.dataset.date, true);
 }
 
-async function jumpToDate(rawDate) {
-  if (!rawDate) return;
-  const query = new URLSearchParams();
-  query.set("jump_date", rawDate);
-  query.set("filter_expr", serializeExpression());
-  const response = await fetch(`/api/position?${query.toString()}`);
-  if (!response.ok) return;
-  const payload = await response.json();
-  const pageOffset = Math.max(0, Math.floor((payload.offset || 0) / filterState.pageSize) * filterState.pageSize);
-  await resetGallery(pageOffset, rawDate, payload.offset || 0);
-}
-
 function currentVisibleDate() {
   const cards = currentCards();
   if (!cards.length) return "";
-  const threshold = 96;
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot) return "";
+  const rootRect = scrollRoot.getBoundingClientRect();
+  const threshold = rootRect.top + 96;
   const candidate = cards.find((card) => card.getBoundingClientRect().bottom > threshold);
   return candidate?.dataset.takenAt?.slice(0, 10) || cards[0].dataset.takenAt?.slice(0, 10) || "";
 }
@@ -304,10 +329,7 @@ function updateTimelineFromScroll() {
   syncTimelineToDate(resolveDateBucket(filterState.timelineItems, value)?.date || value, true);
 }
 
-async function loadPage(offset, append = true, focusOffset = null) {
-  if (filterState.loading || filterState.done) return;
-  filterState.loading = true;
-  updateStatus("正在加载...");
+async function fetchChunk(offset) {
   const query = new URLSearchParams();
   query.set("offset", String(offset));
   query.set("limit", String(filterState.pageSize));
@@ -315,40 +337,99 @@ async function loadPage(offset, append = true, focusOffset = null) {
   const response = await fetch(`/api/groups?${query.toString()}`, { cache: "no-store" });
   const groups = await response.json();
   groups.forEach((group) => groupCache.set(Number(group.id), group));
-  const container = document.querySelector("[data-filter-gallery]");
-  if (!container) return;
-  if (!append) container.innerHTML = "";
+  return groups;
+}
+
+async function loadChunk(offset, mode = "append", focusOffset = null) {
+  if (filterState.loadingOffsets.has(offset)) return;
+  if (offset < 0 || offset >= filterState.total) return;
+  if (filterState.chunks.has(offset)) return;
+  filterState.loadingOffsets.add(offset);
+  updateStatus(mode === "prepend" ? "正在向上加载..." : "正在加载...");
+  const scrollRoot = currentScrollRoot();
+  const beforeHeight = scrollRoot?.scrollHeight || 0;
+  const beforeScrollTop = scrollRoot?.scrollTop || 0;
+  const groups = await fetchChunk(offset);
+  filterState.loadingOffsets.delete(offset);
   if (!groups.length) {
-    filterState.done = true;
-    filterState.loading = false;
-    updateStatus(container.children.length ? "已加载全部内容" : "当前筛选条件下还没有照片。");
-    updateCount();
+    if (mode === "prepend") filterState.reachedTop = true;
+    else filterState.reachedBottom = true;
+    updateStatus(loadedCount() ? "已加载当前可见范围" : "当前筛选条件下还没有照片。");
     return;
   }
-  filterState.pageNumber += 1;
-  container.insertAdjacentHTML("beforeend", renderSection(groups, offset, filterState.pageNumber));
-  filterState.nextOffset = offset + groups.length;
-  filterState.done = filterState.nextOffset >= filterState.total;
-  filterState.loading = false;
-  updateCount();
-  updateStatus(filterState.done ? "已加载全部内容" : "继续向下滚动以加载更多");
-  if (focusOffset !== null) {
-    const focusIndex = Math.max(0, Math.min(groups.length - 1, focusOffset - offset));
-    const focusGroup = groups[focusIndex];
-    const card = container.querySelector(`[data-group-id="${focusGroup.id}"]`);
-    card?.scrollIntoView({ block: "start" });
+  filterState.chunks.set(offset, groups);
+  filterState.reachedTop = sortedChunkOffsets()[0] <= 0;
+  filterState.reachedBottom = sortedChunkOffsets().at(-1) + groups.length >= filterState.total;
+  renderGallery();
+  if (mode === "prepend" && scrollRoot) {
+    const afterHeight = scrollRoot.scrollHeight;
+    scrollRoot.scrollTop = beforeScrollTop + (afterHeight - beforeHeight);
   }
+  if (focusOffset !== null && scrollRoot) {
+    const chunk = filterState.chunks.get(offset) || [];
+    const focusIndex = Math.max(0, Math.min(chunk.length - 1, focusOffset - offset));
+    const focusGroup = chunk[focusIndex];
+    scrollRoot.querySelector(`[data-group-id="${focusGroup.id}"]`)?.scrollIntoView({ block: "start" });
+  }
+  updateStatus(filterState.reachedTop && filterState.reachedBottom ? "已加载全部内容" : "继续滚动以加载更多");
   updateTimelineFromScroll();
 }
 
+async function ensureViewportFilled() {
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot) return;
+  let attempts = 0;
+  let previousHeight = scrollRoot.scrollHeight;
+  while (!filterState.reachedBottom && scrollRoot.scrollHeight <= scrollRoot.clientHeight + 120 && attempts < 4) {
+    const lastOffset = sortedChunkOffsets().at(-1);
+    if (!Number.isFinite(lastOffset)) break;
+    const lastLength = filterState.chunks.get(lastOffset)?.length || 0;
+    await loadChunk(lastOffset + lastLength, "append");
+    attempts += 1;
+    if (scrollRoot.scrollHeight <= previousHeight) break;
+    previousHeight = scrollRoot.scrollHeight;
+  }
+}
+
 async function resetGallery(offset = 0, requestedDate = "", focusOffset = null) {
-  filterState.nextOffset = offset;
-  filterState.done = false;
-  filterState.loading = false;
-  filterState.pageNumber = Math.floor(offset / filterState.pageSize);
-  filterState.lastMonthKey = null;
+  filterState.chunks = new Map();
+  filterState.loadingOffsets = new Set();
+  filterState.reachedTop = false;
+  filterState.reachedBottom = false;
   filterState.requestedDate = requestedDate;
-  await loadPage(offset, false, focusOffset);
+  renderGallery();
+  await loadChunk(offset, "replace", focusOffset);
+  await ensureViewportFilled();
+}
+
+async function maybeLoadAroundScroll() {
+  const scrollRoot = currentScrollRoot();
+  if (!scrollRoot) return;
+  if (scrollRoot.scrollTop < 360 && !filterState.reachedTop) {
+    const firstOffset = sortedChunkOffsets()[0];
+    if (Number.isFinite(firstOffset)) {
+      await loadChunk(Math.max(0, firstOffset - filterState.pageSize), "prepend");
+    }
+  }
+  if (scrollRoot.scrollHeight - scrollRoot.scrollTop - scrollRoot.clientHeight < 900 && !filterState.reachedBottom) {
+    const lastOffset = sortedChunkOffsets().at(-1);
+    if (Number.isFinite(lastOffset)) {
+      const lastLength = filterState.chunks.get(lastOffset)?.length || 0;
+      await loadChunk(lastOffset + lastLength, "append");
+    }
+  }
+}
+
+async function jumpToDate(rawDate) {
+  if (!rawDate) return;
+  const query = new URLSearchParams();
+  query.set("jump_date", rawDate);
+  query.set("filter_expr", serializeExpression());
+  const response = await fetch(`/api/position?${query.toString()}`);
+  if (!response.ok) return;
+  const payload = await response.json();
+  const pageOffset = Math.max(0, Math.floor((payload.offset || 0) / filterState.pageSize) * filterState.pageSize);
+  await resetGallery(pageOffset, rawDate, payload.offset || 0);
 }
 
 function renderTimeline(items) {
@@ -390,7 +471,7 @@ function attachTimelineEvents() {
     event.preventDefault();
     timeline.scrollTop += event.deltaY || event.deltaX;
     updateTimelineFromCenter(false);
-  }, { passive: false });
+  }, { capture: true, passive: false });
   timeline.addEventListener("scroll", () => {
     window.clearTimeout(scrollTimer);
     scrollTimer = window.setTimeout(() => updateTimelineFromCenter(false), 40);
@@ -417,11 +498,7 @@ function attachTimelineEvents() {
     timeline.classList.remove("dragging");
     updateTimelineFromCenter(false);
     const cell = event.target.closest("[data-date]");
-    if (cell && !filterState.timelineMoved) {
-      filterState.requestedDate = cell.dataset.date;
-      syncTimelineToDate(cell.dataset.date, true);
-      await jumpToDate(cell.dataset.date);
-    }
+    if (cell && !filterState.timelineMoved) await jumpToDate(cell.dataset.date);
   });
   timeline.addEventListener("pointercancel", () => {
     filterState.timelineDragging = false;
@@ -430,7 +507,6 @@ function attachTimelineEvents() {
   document.querySelector("[data-filter-timeline-jump]")?.addEventListener("click", async () => {
     const selected = selectedTimelineCell();
     if (!selected) return;
-    filterState.requestedDate = selected.dataset.date;
     await jumpToDate(selected.dataset.date);
   });
 }
@@ -455,7 +531,6 @@ async function refreshTimelineAndResults() {
   const positionResponse = await fetch(`/api/position?${query.toString()}`, { cache: "no-store" });
   const positionPayload = await positionResponse.json();
   filterState.total = Number(positionPayload.total || 0);
-  updateCount();
   await resetGallery(0, initialDate, 0);
 }
 
@@ -531,9 +606,15 @@ function attachBuilderEvents() {
       renderBuilder();
       return;
     }
+    if (event.target.closest("[data-filter-toggle-minify]")) {
+      const rootPanel = document.querySelector("[data-filter-builder-root]");
+      setBuilderMinified(!rootPanel?.classList.contains("is-minified"));
+      return;
+    }
     if (event.target.closest("[data-filter-apply]")) {
-      const query = expressionQueryString();
-      history.replaceState(null, "", `/filter?${query}`);
+      const query = new URLSearchParams();
+      query.set("filter_expr", serializeExpression());
+      history.replaceState(null, "", `/filter?${query.toString()}`);
       await refreshTimelineAndResults();
     }
   });
@@ -542,16 +623,24 @@ function attachBuilderEvents() {
 export async function initFilterGallery() {
   const root = document.querySelector("[data-filter-gallery-root]");
   const builderRoot = document.querySelector("[data-filter-builder-root]");
-  if (!root || !builderRoot) return;
+  const scrollRoot = currentScrollRoot();
+  if (!root || !builderRoot || !scrollRoot) return;
+
   filterState.total = Number(root.dataset.totalGroups || 0);
   filterState.pageSize = Number(root.dataset.pageSize || 72);
   filterState.tagOptions = readJsonScript("[data-filter-tags]") || [];
   filterState.resourceOptions = readJsonScript("[data-filter-resource-options]") || [];
   filterState.expression = normalizeNode(readJsonScript("[data-filter-initial-expr]") || defaultGroup());
+  filterState.chunks = new Map();
+  filterState.loadingOffsets = new Set();
+  filterState.reachedTop = false;
+  filterState.reachedBottom = false;
 
+  setBuilderMinified(localStorage.getItem(FILTER_MINIFY_KEY) === "true");
   renderBuilder();
   attachBuilderEvents();
   attachTimelineEvents();
+  attachGalleryWheel();
 
   const query = new URLSearchParams();
   query.set("filter_expr", serializeExpression());
@@ -562,26 +651,25 @@ export async function initFilterGallery() {
   sizeTimeline();
   const initialDate = root.dataset.currentDate || timelinePayload.max_date || "";
   const initialBucket = resolveDateBucket(items, initialDate);
-  if (initialBucket) {
-    filterState.requestedDate = initialBucket.date;
-    syncTimelineToDate(initialBucket.date, true);
-  }
+  if (initialBucket) syncTimelineToDate(initialBucket.date, true);
+
   if (filterState.total <= 0) {
     updateStatus("当前筛选条件下还没有照片。");
     updateCount();
     return;
   }
+
   await resetGallery(0, initialDate, 0);
-  const sentinel = document.querySelector("[data-filter-gallery-sentinel]");
-  if (sentinel) {
-    const observer = new IntersectionObserver(async (entries) => {
-      const entry = entries[0];
-      if (!entry?.isIntersecting || filterState.loading || filterState.done) return;
-      await loadPage(filterState.nextOffset, true);
-    }, { rootMargin: "1200px 0px 1200px 0px" });
-    observer.observe(sentinel);
-  }
-  window.addEventListener("scroll", () => updateTimelineFromScroll(), { passive: true });
+
+  let scrollTimer = null;
+  scrollRoot.addEventListener("scroll", () => {
+    window.clearTimeout(scrollTimer);
+    scrollTimer = window.setTimeout(async () => {
+      updateTimelineFromScroll();
+      await maybeLoadAroundScroll();
+    }, 30);
+  }, { passive: true });
+
   window.addEventListener("resize", () => {
     sizeTimeline();
     updateTimelineFromScroll();

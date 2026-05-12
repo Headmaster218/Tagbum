@@ -13,11 +13,19 @@
   box-sizing: border-box;
 }
 
+html {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
 }
 
 a {
@@ -70,6 +78,12 @@ button:hover,
 
 main {
   padding: 28px;
+  min-height: 0;
+  overflow: auto;
+}
+
+main:has(.gallery-screen) {
+  overflow: hidden;
 }
 
 .page-head {
