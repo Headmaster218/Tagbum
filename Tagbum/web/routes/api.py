@@ -22,6 +22,7 @@ from ..services.gallery import (
     map_cell_position,
     map_grid_payload,
     map_groups_for_bounds,
+    normalize_filter_expression,
     resolve_offset_for_date,
 )
 from ..services.media import range_file_response
@@ -34,15 +35,17 @@ router = APIRouter()
 def api_groups(
     tag: str | None = None,
     kind: str | None = None,
+    filter_expr: str | None = None,
     tag_status: str | None = None,
     include_resources: bool = False,
     limit: int = 144,
     offset: int = 0,
     session: Session = Depends(get_session),
 ) -> list[dict]:
+    normalized = normalize_filter_expression(filter_expr, tag=tag, kind=kind)
     return [
         group_payload(group, include_resources=include_resources)
-        for group in load_groups(session, tag=tag, tag_status=tag_status, kind=kind, limit=limit, offset=offset)
+        for group in load_groups(session, tag_status=tag_status, filter_expr=normalized, limit=limit, offset=offset)
     ]
 
 
@@ -52,14 +55,16 @@ def api_position(
     index: int | None = None,
     tag: str | None = None,
     kind: str | None = None,
+    filter_expr: str | None = None,
     tag_status: str | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    total = count_groups(session, tag=tag, tag_status=tag_status, kind=kind)
+    normalized = normalize_filter_expression(filter_expr, tag=tag, kind=kind)
+    total = count_groups(session, tag_status=tag_status, filter_expr=normalized)
     if total == 0:
         return {"offset": 0, "total": 0}
     if jump_date:
-        offset = resolve_offset_for_date(session, jump_date, tag=tag, tag_status=tag_status, kind=kind)
+        offset = resolve_offset_for_date(session, jump_date, tag_status=tag_status, filter_expr=normalized)
     elif index is not None:
         offset = max(0, min(index - 1, total - 1))
     else:
@@ -68,8 +73,15 @@ def api_position(
 
 
 @router.get("/api/dates")
-def api_dates(tag: str | None = None, kind: str | None = None, tag_status: str | None = None, session: Session = Depends(get_session)) -> dict:
-    counts = date_counts(session, tag=tag, kind=kind, tag_status=tag_status)
+def api_dates(
+    tag: str | None = None,
+    kind: str | None = None,
+    filter_expr: str | None = None,
+    tag_status: str | None = None,
+    session: Session = Depends(get_session),
+) -> dict:
+    normalized = normalize_filter_expression(filter_expr, tag=tag, kind=kind)
+    counts = date_counts(session, tag_status=tag_status, filter_expr=normalized)
     if not counts:
         return {"dates": [], "min_date": None, "max_date": None}
     days = []

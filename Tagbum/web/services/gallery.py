@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import json
 import math
 
 from fastapi import HTTPException
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, and_, false, func, not_, or_, select, true
 from sqlalchemy.orm import Session, selectinload
 
 from ...media import WEB_IMAGE_EXTENSIONS
@@ -32,29 +33,129 @@ def decorate_groups(groups: list[AssetGroup]) -> list[AssetGroup]:
     return groups
 
 
-def apply_kind_filter(query: Select[tuple[AssetGroup]], kind: str | None) -> Select[tuple[AssetGroup]]:
-    if kind == "image":
-        return query.where(AssetGroup.resources.any(AssetResource.kind == "image"))
-    if kind == "live":
-        return query.where(
+RESOURCE_FILTER_OPTIONS = [
+    ("image", "Image"),
+    ("live", "Live"),
+    ("video", "Video"),
+    ("edited", "Edited"),
+    ("hdr", "HDR"),
+]
+
+
+def default_filter_expression() -> dict:
+    return {"kind": "group", "op": "and", "negate": False, "items": []}
+
+
+def normalize_filter_expression(
+    raw_filter: str | None = None,
+    tag: str | None = None,
+    kind: str | None = None,
+) -> dict:
+    legacy_items = []
+    if tag:
+        legacy_items.append({"kind": "condition", "field": "tag", "value": tag.strip().lower(), "negate": False})
+    if kind:
+        legacy_items.append({"kind": "condition", "field": "resource", "value": kind.strip().lower(), "negate": False})
+    if raw_filter:
+        try:
+            parsed = json.loads(raw_filter)
+        except json.JSONDecodeError:
+            parsed = default_filter_expression()
+    else:
+        parsed = default_filter_expression()
+    normalized = normalize_filter_node(parsed)
+    if legacy_items:
+        normalized["items"].extend(legacy_items)
+    return normalized
+
+
+def normalize_filter_node(node: dict | None) -> dict:
+    if not isinstance(node, dict):
+        return default_filter_expression()
+    kind = node.get("kind")
+    if kind == "condition":
+        field = node.get("field")
+        value = str(node.get("value") or "").strip().lower()
+        if field not in {"tag", "resource"} or not value:
+            return {"kind": "condition", "field": "tag", "value": "", "negate": False}
+        return {
+            "kind": "condition",
+            "field": field,
+            "value": value,
+            "negate": bool(node.get("negate")),
+        }
+    items = [normalize_filter_node(item) for item in node.get("items", []) if isinstance(item, dict)]
+    items = [item for item in items if not (item["kind"] == "condition" and not item.get("value"))]
+    return {
+        "kind": "group",
+        "op": "or" if node.get("op") == "or" else "and",
+        "negate": bool(node.get("negate")),
+        "items": items,
+    }
+
+
+def resource_condition(value: str):
+    if value == "image":
+        return AssetGroup.resources.any(AssetResource.kind == "image")
+    if value == "live":
+        return and_(
             AssetGroup.resources.any(AssetResource.kind == "image"),
             AssetGroup.resources.any(AssetResource.kind == "video"),
         )
-    if kind == "video":
-        return query.where(
+    if value == "video":
+        return and_(
             AssetGroup.resources.any(AssetResource.kind == "video"),
-            ~AssetGroup.resources.any(AssetResource.kind == "image"),
+            not_(AssetGroup.resources.any(AssetResource.kind == "image")),
         )
-    if kind == "edited":
-        return query.where(
-            AssetGroup.resources.any(
-                (AssetResource.kind == "sidecar") & (AssetResource.extension == ".aae")
-            )
+    if value == "edited":
+        return AssetGroup.resources.any(
+            (AssetResource.kind == "sidecar") & (AssetResource.extension == ".aae")
         )
-    return query
+    if value == "hdr":
+        return AssetGroup.resources.any(AssetResource.extension.in_([".heic", ".heif"]))
+    return false()
 
 
-def group_query(tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> Select[tuple[AssetGroup]]:
+def build_filter_clause(node: dict):
+    if node.get("kind") == "condition":
+        field = node.get("field")
+        value = node.get("value")
+        if field == "tag":
+            clause = AssetGroup.tags.any(AssetTag.tag.has(Tag.name == value))
+        elif field == "resource":
+            clause = resource_condition(value)
+        else:
+            clause = false()
+        return not_(clause) if node.get("negate") else clause
+
+    items = [build_filter_clause(item) for item in node.get("items", [])]
+    if not items:
+        clause = true()
+    elif node.get("op") == "or":
+        clause = or_(*items)
+    else:
+        clause = and_(*items)
+    return not_(clause) if node.get("negate") else clause
+
+
+def apply_filter_expression(query: Select[tuple[AssetGroup]], filter_expr: dict | None) -> Select[tuple[AssetGroup]]:
+    if not filter_expr or not filter_expr.get("items"):
+        return query
+    return query.where(build_filter_clause(filter_expr))
+
+
+def apply_kind_filter(query: Select[tuple[AssetGroup]], kind: str | None) -> Select[tuple[AssetGroup]]:
+    if not kind:
+        return query
+    return query.where(resource_condition(kind))
+
+
+def group_query(
+    tag: str | None = None,
+    tag_status: str | None = None,
+    kind: str | None = None,
+    filter_expr: dict | None = None,
+) -> Select[tuple[AssetGroup]]:
     effective_taken_at = effective_taken_at_expr()
     query = select(AssetGroup).options(
         selectinload(AssetGroup.resources),
@@ -67,6 +168,7 @@ def group_query(tag: str | None = None, tag_status: str | None = None, kind: str
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
     query = apply_kind_filter(query, kind)
+    query = apply_filter_expression(query, filter_expr)
     return query.order_by(effective_taken_at.desc().nullslast(), AssetGroup.id.desc())
 
 
@@ -75,10 +177,11 @@ def load_groups(
     tag: str | None = None,
     tag_status: str | None = None,
     kind: str | None = None,
+    filter_expr: dict | None = None,
     limit: int = 144,
     offset: int = 0,
 ) -> list[AssetGroup]:
-    query = group_query(tag, tag_status, kind).offset(offset).limit(limit)
+    query = group_query(tag, tag_status, kind, filter_expr).offset(offset).limit(limit)
     return decorate_groups(list(session.scalars(query)))
 
 
@@ -101,10 +204,17 @@ def load_kind_counts(session: Session, tag: str | None = None) -> list[tuple[str
         ("live", count_groups(session, tag=tag, kind="live")),
         ("video", count_groups(session, tag=tag, kind="video")),
         ("edited", count_groups(session, tag=tag, kind="edited")),
+        ("hdr", count_groups(session, tag=tag, kind="hdr")),
     ]
 
 
-def count_groups(session: Session, tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> int:
+def count_groups(
+    session: Session,
+    tag: str | None = None,
+    tag_status: str | None = None,
+    kind: str | None = None,
+    filter_expr: dict | None = None,
+) -> int:
     query = select(func.count(AssetGroup.id))
     if tag:
         query = query.join(AssetTag).join(Tag).where(Tag.name == tag.strip().lower())
@@ -113,6 +223,8 @@ def count_groups(session: Session, tag: str | None = None, tag_status: str | Non
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
     query = apply_kind_filter(query, kind)
+    if filter_expr and filter_expr.get("items"):
+        query = query.where(build_filter_clause(filter_expr))
     return session.scalar(query) or 0
 
 
@@ -238,7 +350,13 @@ def map_center(session: Session) -> tuple[float, float]:
     return float(group.latitude), float(group.longitude)
 
 
-def date_counts(session: Session, tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> dict[date, int]:
+def date_counts(
+    session: Session,
+    tag: str | None = None,
+    tag_status: str | None = None,
+    kind: str | None = None,
+    filter_expr: dict | None = None,
+) -> dict[date, int]:
     effective_taken_at = effective_taken_at_expr()
     day = func.date(effective_taken_at)
     query = select(day, func.count(AssetGroup.id)).where(effective_taken_at.is_not(None))
@@ -249,6 +367,8 @@ def date_counts(session: Session, tag: str | None = None, tag_status: str | None
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
     query = apply_kind_filter(query, kind)
+    if filter_expr and filter_expr.get("items"):
+        query = query.where(build_filter_clause(filter_expr))
     query = query.group_by(day)
     counts: dict[date, int] = {}
     for raw_day, count in session.execute(query):
@@ -274,13 +394,28 @@ def page_window(page: int, total_pages_value: int, radius: int = 2) -> list[int]
     return list(range(start, end + 1))
 
 
-def resolve_offset_for_date(session: Session, raw_date: str, tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> int:
+def resolve_offset_for_date(
+    session: Session,
+    raw_date: str,
+    tag: str | None = None,
+    tag_status: str | None = None,
+    kind: str | None = None,
+    filter_expr: dict | None = None,
+) -> int:
     try:
         target = date.fromisoformat(raw_date)
     except ValueError:
         return 0
     effective_taken_at = effective_taken_at_expr()
-    rows = decorate_groups(list(session.scalars(group_query(tag=tag, tag_status=tag_status, kind=kind).where(effective_taken_at.is_not(None)))))
+    rows = decorate_groups(
+        list(
+            session.scalars(
+                group_query(tag=tag, tag_status=tag_status, kind=kind, filter_expr=filter_expr).where(
+                    effective_taken_at.is_not(None)
+                )
+            )
+        )
+    )
     if not rows:
         return 0
     same_day = [

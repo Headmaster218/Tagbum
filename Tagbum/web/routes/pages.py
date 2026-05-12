@@ -12,11 +12,12 @@ from ..services.gallery import (
     count_groups,
     count_located_groups,
     first_group_date,
-    load_kind_counts,
     load_groups,
     load_tags,
     map_center,
+    normalize_filter_expression,
     page_window,
+    RESOURCE_FILTER_OPTIONS,
     resolve_offset_for_date,
     total_pages,
 )
@@ -84,17 +85,18 @@ def tag_page(
 @router.get("/filter", response_class=HTMLResponse)
 def filter_page(request: Request, tag: str | None = None, session: Session = Depends(get_session)) -> HTMLResponse:
     kind = request.query_params.get("kind")
-    total_groups = count_groups(session, tag=tag, kind=kind)
+    raw_filter = request.query_params.get("filter_expr")
+    filter_expr = normalize_filter_expression(raw_filter, tag=tag, kind=kind)
+    total_groups = count_groups(session, filter_expr=filter_expr)
     return templates.TemplateResponse(
         request,
         "filter.html",
         {
             "tags": load_tags(session),
-            "kind_counts": load_kind_counts(session, tag=tag),
-            "active_tag": tag,
-            "active_kind": kind,
+            "resource_options": RESOURCE_FILTER_OPTIONS,
+            "initial_filter_expr": filter_expr,
             "total_groups": total_groups,
-            "current_date": first_group_date(load_groups(session, tag=tag, kind=kind, limit=1)),
+            "current_date": first_group_date(load_groups(session, filter_expr=filter_expr, limit=1)),
             "page_size": HOME_PAGE_SIZE,
         },
     )
