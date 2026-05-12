@@ -9,10 +9,12 @@ import {
   movePreview,
   openPreview,
   resetPreviewScale,
+  selectPreviewResource,
   setPreviewScale,
 } from "./js/features/preview.js";
 import { addTagToGroup, removeTagFromGroup } from "./js/features/tags.js";
 import { initHomeGallery } from "./js/pages/home.js";
+import { initFilterGallery } from "./js/pages/filter.js";
 import {
   closeMapCellPanel,
   initMap,
@@ -99,6 +101,12 @@ document.addEventListener("click", async (event) => {
   const duplicatePreview = event.target.closest("[data-open-duplicate-preview]");
   if (duplicatePreview) {
     await openPreview(duplicatePreview.dataset.openDuplicatePreview, duplicatePreviewIds(duplicatePreview));
+    return;
+  }
+
+  const previewResource = event.target.closest("[data-preview-resource]");
+  if (previewResource) {
+    selectPreviewResource(previewResource.dataset.previewResource);
     return;
   }
 
@@ -273,6 +281,7 @@ initPreviewModule();
 initTagger();
 initDateStrips();
 initHomeGallery();
+initFilterGallery();
 initMap();
 initSettingsPage();
 initToolsPage();

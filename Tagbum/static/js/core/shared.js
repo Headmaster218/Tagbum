@@ -2,6 +2,7 @@ export const groupCache = new Map();
 
 export const previewState = {
   group: null,
+  resourceId: null,
   contextIds: [],
   scale: 1,
   panX: 0,
@@ -13,6 +14,8 @@ export const previewState = {
   dragOriginY: 0,
   holdTimer: null,
   suppressModalViewClick: false,
+  volume: Number(localStorage.getItem("tagbum.previewVolume") || "1"),
+  muted: localStorage.getItem("tagbum.previewMuted") === "true",
 };
 
 export const taggerState = {
@@ -43,18 +46,36 @@ export const homeState = {
   timelineScrollTop: 0,
 };
 
+export const filterState = {
+  total: 0,
+  pageSize: 72,
+  nextOffset: 0,
+  loading: false,
+  done: false,
+  pageNumber: 0,
+  lastMonthKey: null,
+  requestedDate: "",
+  timelineItems: [],
+  timelineDragging: false,
+  timelineMoved: false,
+  timelineStartY: 0,
+  timelineScrollTop: 0,
+  tag: "",
+  kind: "",
+};
+
 export const MAP_TILE_PROVIDERS = {
   osm: {
     name: "OpenStreetMap",
     url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: "漏 OpenStreetMap contributors",
+    attribution: "© OpenStreetMap contributors",
     coordinateSystem: "wgs84",
     subdomains: [""],
   },
   amap: {
     name: "高德地图",
     url: "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
-    attribution: "漏 高德地图",
+    attribution: "© 高德地图",
     coordinateSystem: "gcj02",
     subdomains: ["1", "2", "3", "4"],
   },
@@ -64,6 +85,7 @@ export const mapState = {
   centerLat: 30,
   centerLon: 104,
   zoom: 10,
+  tileZoom: 10,
   tileProviderKey: "osm",
   tileProvider: MAP_TILE_PROVIDERS.osm,
   rows: 7,

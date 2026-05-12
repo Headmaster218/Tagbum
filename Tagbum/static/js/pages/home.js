@@ -1,11 +1,11 @@
 import {
+  compactDateItems,
   escapeHtml,
   formatMonthKey,
   formatMonthTitle,
   groupCache,
   homeState,
   kindBadgesHtml,
-  compactDateItems,
   resolveDateBucket,
 } from "../core/shared.js";
 
@@ -69,14 +69,12 @@ function currentHomeCards() {
 
 function updateHomeTimelineMarker(value) {
   const timeline = document.querySelector("[data-home-timeline]");
-  const current = document.querySelector("[data-home-timeline-current]");
   const label = document.querySelector("[data-home-timeline-label]");
   if (!timeline || !value) return;
   const cell = timeline.querySelector(`[data-date="${CSS.escape(value)}"]`);
   timeline.querySelectorAll(".home-timeline-tick.active").forEach((item) => item.classList.remove("active"));
   if (cell) cell.classList.add("active");
   const text = cell?.dataset.endDate && cell.dataset.endDate !== value ? `${value} - ${cell.dataset.endDate}` : value;
-  if (current) current.textContent = text;
   if (label) label.textContent = text;
 }
 

@@ -33,6 +33,7 @@ router = APIRouter()
 @router.get("/api/groups")
 def api_groups(
     tag: str | None = None,
+    kind: str | None = None,
     tag_status: str | None = None,
     include_resources: bool = False,
     limit: int = 144,
@@ -41,7 +42,7 @@ def api_groups(
 ) -> list[dict]:
     return [
         group_payload(group, include_resources=include_resources)
-        for group in load_groups(session, tag=tag, tag_status=tag_status, limit=limit, offset=offset)
+        for group in load_groups(session, tag=tag, tag_status=tag_status, kind=kind, limit=limit, offset=offset)
     ]
 
 
@@ -49,14 +50,16 @@ def api_groups(
 def api_position(
     jump_date: str | None = None,
     index: int | None = None,
+    tag: str | None = None,
+    kind: str | None = None,
     tag_status: str | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    total = count_groups(session, tag_status=tag_status)
+    total = count_groups(session, tag=tag, tag_status=tag_status, kind=kind)
     if total == 0:
         return {"offset": 0, "total": 0}
     if jump_date:
-        offset = resolve_offset_for_date(session, jump_date, tag_status=tag_status)
+        offset = resolve_offset_for_date(session, jump_date, tag=tag, tag_status=tag_status, kind=kind)
     elif index is not None:
         offset = max(0, min(index - 1, total - 1))
     else:
@@ -65,8 +68,8 @@ def api_position(
 
 
 @router.get("/api/dates")
-def api_dates(tag_status: str | None = None, session: Session = Depends(get_session)) -> dict:
-    counts = date_counts(session, tag_status=tag_status)
+def api_dates(tag: str | None = None, kind: str | None = None, tag_status: str | None = None, session: Session = Depends(get_session)) -> dict:
+    counts = date_counts(session, tag=tag, kind=kind, tag_status=tag_status)
     if not counts:
         return {"dates": [], "min_date": None, "max_date": None}
     days = []

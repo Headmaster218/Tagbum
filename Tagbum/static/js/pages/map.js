@@ -6,18 +6,66 @@ import {
   groupCache,
   imageResource,
   imageUrl,
-  kindBadgeMeta,
   lonLatToWorld,
   mapCellState,
   mapDisplayLonLat,
   mapState,
   normalizeLon,
+  outOfChina,
   setMapCenterFromWorld,
   tileUrl,
   videoResource,
   worldToLonLat,
   wrappedWorldDelta,
 } from "../core/shared.js";
+
+const TILE_FALLBACK_PROVIDER = MAP_TILE_PROVIDERS.osm;
+const AMAP_OUTSIDE_CHINA_MAX_ZOOM = 9.1;
+
+function effectiveTileProvider() {
+  if (
+    mapState.tileProvider === MAP_TILE_PROVIDERS.amap
+    && outOfChina(mapState.centerLon, mapState.centerLat)
+    && mapState.zoom > AMAP_OUTSIDE_CHINA_MAX_ZOOM
+  ) {
+    return TILE_FALLBACK_PROVIDER;
+  }
+  return mapState.tileProvider;
+}
+
+function displayLonLatForProvider(provider, lon, lat) {
+  return provider.coordinateSystem === "gcj02" ? mapDisplayLonLat(lon, lat) : { lon, lat };
+}
+
+function setMapStatus(text) {
+  const count = document.querySelector("[data-map-count]");
+  if (count) count.textContent = text;
+}
+
+function metersPerPixel(lat, zoom) {
+  return (Math.cos((lat * Math.PI) / 180) * 40075016.686) / (256 * 2 ** zoom);
+}
+
+function niceDistance(targetMeters) {
+  const exponent = 10 ** Math.floor(Math.log10(targetMeters || 1));
+  const fraction = targetMeters / exponent;
+  if (fraction >= 5) return 5 * exponent;
+  if (fraction >= 2) return 2 * exponent;
+  return exponent;
+}
+
+function updateScaleBar() {
+  const bar = document.querySelector("[data-map-scale]");
+  const label = document.querySelector("[data-map-scale-label]");
+  if (!bar || !label) return;
+  const meters = metersPerPixel(mapState.centerLat, mapState.zoom);
+  const maxPixels = 120;
+  const targetMeters = meters * maxPixels;
+  const distance = niceDistance(targetMeters / 2);
+  const pixels = distance / meters;
+  bar.style.width = `${Math.max(24, Math.min(maxPixels, pixels))}px`;
+  label.textContent = distance >= 1000 ? `${(distance / 1000).toFixed(distance >= 10000 ? 0 : 1)} km` : `${Math.round(distance)} m`;
+}
 
 function mapBounds(map) {
   const width = map.clientWidth;
@@ -114,6 +162,11 @@ function renderMap() {
   if (!map) return;
   renderMapTiles(map);
   renderMapMarkers(map);
+  updateScaleBar();
+}
+
+function fallbackTileUrl(zoom, x, y) {
+  return tileUrl(TILE_FALLBACK_PROVIDER, zoom, x, y);
 }
 
 function renderMapTiles(map) {
@@ -121,28 +174,54 @@ function renderMapTiles(map) {
   const width = map.clientWidth;
   const height = map.clientHeight;
   const zoom = mapState.zoom;
-  const provider = mapState.tileProvider;
-  const displayCenter = mapDisplayLonLat(mapState.centerLon, mapState.centerLat);
+  const tileZoom = clamp(Math.round(zoom), 2, 18);
+  mapState.tileZoom = tileZoom;
+  const provider = effectiveTileProvider();
+  const displayCenter = displayLonLatForProvider(provider, mapState.centerLon, mapState.centerLat);
   const center = lonLatToWorld(displayCenter.lon, displayCenter.lat, zoom);
-  const startX = Math.floor((center.x - width / 2) / 256);
-  const endX = Math.floor((center.x + width / 2) / 256);
-  const startY = Math.floor((center.y - height / 2) / 256);
-  const endY = Math.floor((center.y + height / 2) / 256);
-  const maxTile = 2 ** zoom;
+  const scale = 256 * 2 ** zoom;
+  const maxTile = 2 ** tileZoom;
+  const tileWorldSize = scale / maxTile;
+  const startX = Math.floor((center.x - width / 2) / tileWorldSize);
+  const endX = Math.floor((center.x + width / 2) / tileWorldSize);
+  const startY = Math.floor((center.y - height / 2) / tileWorldSize);
+  const endY = Math.floor((center.y + height / 2) / tileWorldSize);
   const html = [];
 
   for (let x = startX; x <= endX; x += 1) {
     for (let y = startY; y <= endY; y += 1) {
       if (y < 0 || y >= maxTile) continue;
       const wrappedX = ((x % maxTile) + maxTile) % maxTile;
-      const left = x * 256 - center.x + width / 2;
-      const top = y * 256 - center.y + height / 2;
-      html.push(`<img class="map-tile" src="${tileUrl(provider, zoom, wrappedX, y)}" style="left:${left}px;top:${top}px" alt="">`);
+      const left = x * tileWorldSize - center.x + width / 2;
+      const top = y * tileWorldSize - center.y + height / 2;
+      html.push(`
+        <img
+          class="map-tile"
+          src="${tileUrl(provider, tileZoom, wrappedX, y)}"
+          data-map-tile
+          data-provider="${provider.name}"
+          data-tile-zoom="${tileZoom}"
+          data-tile-x="${wrappedX}"
+          data-tile-y="${y}"
+          style="left:${left}px;top:${top}px;width:${tileWorldSize}px;height:${tileWorldSize}px"
+          alt=""
+        >
+      `);
     }
   }
   tiles.innerHTML = html.join("");
+  tiles.querySelectorAll("[data-map-tile]").forEach((tile) => {
+    tile.addEventListener("error", () => {
+      if (provider !== MAP_TILE_PROVIDERS.amap || tile.dataset.fallback === "true") return;
+      tile.dataset.fallback = "true";
+      tile.src = fallbackTileUrl(Number(tile.dataset.tileZoom), Number(tile.dataset.tileX), Number(tile.dataset.tileY));
+    }, { once: true });
+  });
   const attribution = map.querySelector(".map-attribution");
-  if (attribution) attribution.textContent = provider.attribution;
+  if (attribution) {
+    const fallbackNote = provider !== mapState.tileProvider ? " · 国外高倍缩放自动回退 OSM" : "";
+    attribution.textContent = `${provider.attribution}${fallbackNote}`;
+  }
 }
 
 function renderMapMarkers(map) {
@@ -150,11 +229,12 @@ function renderMapMarkers(map) {
   const cells = JSON.parse(markerLayer.dataset.cells || "[]");
   const width = map.clientWidth;
   const height = map.clientHeight;
-  const displayCenter = mapDisplayLonLat(mapState.centerLon, mapState.centerLat);
+  const provider = effectiveTileProvider();
+  const displayCenter = displayLonLatForProvider(provider, mapState.centerLon, mapState.centerLat);
   const center = lonLatToWorld(displayCenter.lon, displayCenter.lat, mapState.zoom);
   markerLayer.innerHTML = cells.map((cell) => {
     const group = cell.group;
-    const displayPoint = mapDisplayLonLat(group.longitude, group.latitude);
+    const displayPoint = displayLonLatForProvider(provider, group.longitude, group.latitude);
     const point = lonLatToWorld(displayPoint.lon, displayPoint.lat, mapState.zoom);
     const left = wrappedWorldDelta(point.x, center.x, mapState.zoom) + width / 2;
     const top = point.y - center.y + height / 2;
@@ -185,10 +265,11 @@ async function refreshMapPhotos() {
   const markerLayer = map.querySelector("[data-map-markers]");
   markerLayer.dataset.cells = JSON.stringify(cells);
   renderMapMarkers(map);
-  const count = document.querySelector("[data-map-count]");
-  if (count) {
+  if (cells.length) {
     const photoCount = cells.reduce((total, cell) => total + cell.count, 0);
-    count.textContent = cells.length ? `${cells.length} 个位置 · ${photoCount} 张` : "当前视野没有带位置的图片";
+    setMapStatus(`${cells.length} 个位置 · ${photoCount} 张`);
+  } else {
+    setMapStatus("当前视野没有带位置的图片");
   }
 }
 
@@ -369,6 +450,50 @@ export function updateMapCellGroup(updated) {
   groupCache.set(Number(updated.id), updated);
 }
 
+function changeZoom(delta, pointer = null) {
+  const map = document.querySelector("[data-map]");
+  if (!map) return;
+  const oldZoom = mapState.zoom;
+  const nextZoom = clamp(Number((oldZoom + delta).toFixed(2)), 2, 18);
+  if (nextZoom === oldZoom) return;
+  const pointerX = pointer?.x ?? map.clientWidth / 2;
+  const pointerY = pointer?.y ?? map.clientHeight / 2;
+  const oldCenter = lonLatToWorld(mapState.centerLon, mapState.centerLat, oldZoom);
+  const pointerWorld = {
+    x: oldCenter.x - map.clientWidth / 2 + pointerX,
+    y: oldCenter.y - map.clientHeight / 2 + pointerY,
+  };
+  const pointerLonLat = worldToLonLat(pointerWorld.x, pointerWorld.y, oldZoom);
+  const nextPointerWorld = lonLatToWorld(pointerLonLat.lon, pointerLonLat.lat, nextZoom);
+  setMapCenterFromWorld(
+    nextPointerWorld.x - pointerX + map.clientWidth / 2,
+    nextPointerWorld.y - pointerY + map.clientHeight / 2,
+    nextZoom,
+  );
+  mapState.zoom = nextZoom;
+  renderMap();
+  scheduleMapRefresh();
+}
+
+function locateCurrentPosition() {
+  if (!navigator.geolocation) {
+    setMapStatus("当前浏览器不支持定位");
+    return;
+  }
+  setMapStatus("正在定位当前设备...");
+  navigator.geolocation.getCurrentPosition((position) => {
+    const { latitude, longitude } = position.coords;
+    mapState.centerLat = clamp(latitude, -85.0511, 85.0511);
+    mapState.centerLon = normalizeLon(longitude);
+    mapState.zoom = Math.max(mapState.zoom, 12);
+    closeMapCellPanel();
+    renderMap();
+    scheduleMapRefresh(0);
+  }, () => {
+    setMapStatus("定位失败，请检查浏览器权限");
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
 export function initMap() {
   const map = document.querySelector("[data-map]");
   if (!map) return;
@@ -385,38 +510,23 @@ export function initMap() {
   scheduleMapRefresh(0);
 
   document.querySelector("[data-map-density]")?.addEventListener("input", (event) => setMapDensity(event.target.value, true));
+  document.querySelector("[data-map-zoom-in]")?.addEventListener("click", () => changeZoom(0.5));
+  document.querySelector("[data-map-zoom-out]")?.addEventListener("click", () => changeZoom(-0.5));
+  document.querySelector("[data-map-locate]")?.addEventListener("click", locateCurrentPosition);
 
   map.addEventListener("wheel", (event) => {
     if (event.target.closest(".map-cell-panel")) return;
     event.preventDefault();
-    const oldZoom = mapState.zoom;
-    const nextZoom = clamp(oldZoom + (event.deltaY < 0 ? 1 : -1), 2, 18);
-    if (nextZoom === oldZoom) return;
-
-    const rect = map.getBoundingClientRect();
-    const pointerX = event.clientX - rect.left;
-    const pointerY = event.clientY - rect.top;
-    const oldCenter = lonLatToWorld(mapState.centerLon, mapState.centerLat, oldZoom);
-    const pointerWorld = {
-      x: oldCenter.x - map.clientWidth / 2 + pointerX,
-      y: oldCenter.y - map.clientHeight / 2 + pointerY,
-    };
-    const pointerLonLat = worldToLonLat(pointerWorld.x, pointerWorld.y, oldZoom);
-    const nextPointerWorld = lonLatToWorld(pointerLonLat.lon, pointerLonLat.lat, nextZoom);
-    setMapCenterFromWorld(
-      nextPointerWorld.x - pointerX + map.clientWidth / 2,
-      nextPointerWorld.y - pointerY + map.clientHeight / 2,
-      nextZoom,
-    );
-    mapState.zoom = nextZoom;
-    renderMap();
-    scheduleMapRefresh();
+    changeZoom(event.deltaY < 0 ? 0.5 : -0.5, {
+      x: event.clientX - map.getBoundingClientRect().left,
+      y: event.clientY - map.getBoundingClientRect().top,
+    });
   }, { passive: false });
 
   map.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     if (document.querySelector(".map-cell-panel.open")) return;
-    if (event.target.closest("[data-map-cell-row], .map-cell-panel")) return;
+    if (event.target.closest("[data-map-cell-row], .map-cell-panel, .map-controls")) return;
     mapState.dragging = true;
     mapState.dragStartX = event.clientX;
     mapState.dragStartY = event.clientY;

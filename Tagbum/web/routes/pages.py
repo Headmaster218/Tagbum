@@ -12,6 +12,7 @@ from ..services.gallery import (
     count_groups,
     count_located_groups,
     first_group_date,
+    load_kind_counts,
     load_groups,
     load_tags,
     map_center,
@@ -82,10 +83,20 @@ def tag_page(
 
 @router.get("/filter", response_class=HTMLResponse)
 def filter_page(request: Request, tag: str | None = None, session: Session = Depends(get_session)) -> HTMLResponse:
+    kind = request.query_params.get("kind")
+    total_groups = count_groups(session, tag=tag, kind=kind)
     return templates.TemplateResponse(
         request,
         "filter.html",
-        {"groups": load_groups(session, tag=tag, limit=144), "tags": load_tags(session), "active_tag": tag},
+        {
+            "tags": load_tags(session),
+            "kind_counts": load_kind_counts(session, tag=tag),
+            "active_tag": tag,
+            "active_kind": kind,
+            "total_groups": total_groups,
+            "current_date": first_group_date(load_groups(session, tag=tag, kind=kind, limit=1)),
+            "page_size": HOME_PAGE_SIZE,
+        },
     )
 
 

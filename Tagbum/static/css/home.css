@@ -165,14 +165,7 @@
 }
 
 .home-timeline-ruler span {
-  min-width: 0;
-  max-width: 88px;
-  padding: 2px 0;
-  color: #b61e1e;
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1.2;
-  text-align: right;
+  display: none;
 }
 
 .home-timeline-tick {
@@ -208,7 +201,7 @@
 }
 
 .home-timeline-tick.active .home-timeline-stem {
-  box-shadow: 0 0 0 2px rgba(207, 47, 47, 0.14);
+  box-shadow: none;
 }
 
 .home-timeline-month {

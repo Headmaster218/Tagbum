@@ -1,24 +1,57 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-head">
+<section class="page-head home-head">
   <div>
     <h1>标签筛选</h1>
-    <p>选择一个标签查看对应资源组。</p>
+    <p>按标签和资源类型筛选后，仍然可以像主界面一样无限滚动浏览，并通过右侧时间轴跳转。</p>
+  </div>
+  <div class="page-count" data-filter-count>
+    0 / {{ total_groups }}
   </div>
 </section>
 
 <section class="filters">
-  <a class="filter-chip {% if not active_tag %}active{% endif %}" href="/filter">全部</a>
+  <a class="filter-chip {% if not active_tag %}active{% endif %}" href="/filter{% if active_kind %}?kind={{ active_kind }}{% endif %}">全部标签</a>
   {% for name, count in tags %}
-    <a class="filter-chip {% if active_tag == name %}active{% endif %}" href="/filter?tag={{ name }}">{{ name }} <span>{{ count }}</span></a>
+    <a class="filter-chip {% if active_tag == name %}active{% endif %}" href="/filter?tag={{ name }}{% if active_kind %}&kind={{ active_kind }}{% endif %}">{{ name }} <span>{{ count }}</span></a>
   {% endfor %}
 </section>
 
-<section class="gallery">
-  {% for group in groups %}
-    {% include "_card.html" %}
-  {% else %}
-    <p class="empty">这个标签下还没有照片。</p>
+<section class="filters filter-kind-row">
+  <a class="filter-chip {% if not active_kind %}active{% endif %}" href="/filter{% if active_tag %}?tag={{ active_tag }}{% endif %}">全部类型</a>
+  {% for kind, count in kind_counts %}
+    <a class="filter-chip {% if active_kind == kind %}active{% endif %}" href="/filter?{% if active_tag %}tag={{ active_tag }}&{% endif %}kind={{ kind }}">{{ kind|capitalize }} <span>{{ count }}</span></a>
   {% endfor %}
+</section>
+
+<section
+  class="home-layout"
+  data-filter-gallery-root
+  data-total-groups="{{ total_groups }}"
+  data-page-size="{{ page_size }}"
+  data-current-date="{{ current_date }}"
+  data-active-tag="{{ active_tag or '' }}"
+  data-active-kind="{{ active_kind or '' }}"
+>
+  <div class="home-stream-column">
+    <section class="home-gallery" data-filter-gallery></section>
+    <div class="home-gallery-status" data-filter-gallery-status>准备加载</div>
+    <div class="home-gallery-sentinel" data-filter-gallery-sentinel aria-hidden="true"></div>
+  </div>
+
+  <aside class="home-timeline-rail">
+    <div class="home-timeline-panel">
+      <div class="home-timeline-head">
+        <strong data-filter-timeline-label>选择日期</strong>
+        <button type="button" data-filter-timeline-jump>跳转</button>
+      </div>
+      <div class="home-timeline-shell">
+        <div class="home-timeline-ruler">
+          <span data-filter-timeline-current>--</span>
+        </div>
+        <div class="home-timeline" data-filter-timeline></div>
+      </div>
+    </div>
+  </aside>
 </section>
 {% endblock %}

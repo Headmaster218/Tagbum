@@ -32,7 +32,29 @@ def decorate_groups(groups: list[AssetGroup]) -> list[AssetGroup]:
     return groups
 
 
-def group_query(tag: str | None = None, tag_status: str | None = None) -> Select[tuple[AssetGroup]]:
+def apply_kind_filter(query: Select[tuple[AssetGroup]], kind: str | None) -> Select[tuple[AssetGroup]]:
+    if kind == "image":
+        return query.where(AssetGroup.resources.any(AssetResource.kind == "image"))
+    if kind == "live":
+        return query.where(
+            AssetGroup.resources.any(AssetResource.kind == "image"),
+            AssetGroup.resources.any(AssetResource.kind == "video"),
+        )
+    if kind == "video":
+        return query.where(
+            AssetGroup.resources.any(AssetResource.kind == "video"),
+            ~AssetGroup.resources.any(AssetResource.kind == "image"),
+        )
+    if kind == "edited":
+        return query.where(
+            AssetGroup.resources.any(
+                (AssetResource.kind == "sidecar") & (AssetResource.extension == ".aae")
+            )
+        )
+    return query
+
+
+def group_query(tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> Select[tuple[AssetGroup]]:
     effective_taken_at = effective_taken_at_expr()
     query = select(AssetGroup).options(
         selectinload(AssetGroup.resources),
@@ -44,6 +66,7 @@ def group_query(tag: str | None = None, tag_status: str | None = None) -> Select
         query = query.where(AssetGroup.tags.any())
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
+    query = apply_kind_filter(query, kind)
     return query.order_by(effective_taken_at.desc().nullslast(), AssetGroup.id.desc())
 
 
@@ -51,10 +74,11 @@ def load_groups(
     session: Session,
     tag: str | None = None,
     tag_status: str | None = None,
+    kind: str | None = None,
     limit: int = 144,
     offset: int = 0,
 ) -> list[AssetGroup]:
-    query = group_query(tag, tag_status).offset(offset).limit(limit)
+    query = group_query(tag, tag_status, kind).offset(offset).limit(limit)
     return decorate_groups(list(session.scalars(query)))
 
 
@@ -71,12 +95,24 @@ def load_tags(session: Session) -> list[tuple[str, int]]:
     return list(session.execute(query))
 
 
-def count_groups(session: Session, tag_status: str | None = None) -> int:
+def load_kind_counts(session: Session, tag: str | None = None) -> list[tuple[str, int]]:
+    return [
+        ("image", count_groups(session, tag=tag, kind="image")),
+        ("live", count_groups(session, tag=tag, kind="live")),
+        ("video", count_groups(session, tag=tag, kind="video")),
+        ("edited", count_groups(session, tag=tag, kind="edited")),
+    ]
+
+
+def count_groups(session: Session, tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> int:
     query = select(func.count(AssetGroup.id))
+    if tag:
+        query = query.join(AssetTag).join(Tag).where(Tag.name == tag.strip().lower())
     if tag_status == "tagged":
         query = query.where(AssetGroup.tags.any())
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
+    query = apply_kind_filter(query, kind)
     return session.scalar(query) or 0
 
 
@@ -202,14 +238,17 @@ def map_center(session: Session) -> tuple[float, float]:
     return float(group.latitude), float(group.longitude)
 
 
-def date_counts(session: Session, tag_status: str | None = None) -> dict[date, int]:
+def date_counts(session: Session, tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> dict[date, int]:
     effective_taken_at = effective_taken_at_expr()
     day = func.date(effective_taken_at)
     query = select(day, func.count(AssetGroup.id)).where(effective_taken_at.is_not(None))
+    if tag:
+        query = query.join(AssetTag).join(Tag).where(Tag.name == tag.strip().lower())
     if tag_status == "tagged":
         query = query.where(AssetGroup.tags.any())
     elif tag_status == "untagged":
         query = query.where(~AssetGroup.tags.any())
+    query = apply_kind_filter(query, kind)
     query = query.group_by(day)
     counts: dict[date, int] = {}
     for raw_day, count in session.execute(query):
@@ -235,13 +274,13 @@ def page_window(page: int, total_pages_value: int, radius: int = 2) -> list[int]
     return list(range(start, end + 1))
 
 
-def resolve_offset_for_date(session: Session, raw_date: str, tag_status: str | None = None) -> int:
+def resolve_offset_for_date(session: Session, raw_date: str, tag: str | None = None, tag_status: str | None = None, kind: str | None = None) -> int:
     try:
         target = date.fromisoformat(raw_date)
     except ValueError:
         return 0
     effective_taken_at = effective_taken_at_expr()
-    rows = decorate_groups(list(session.scalars(group_query(tag_status=tag_status).where(effective_taken_at.is_not(None)))))
+    rows = decorate_groups(list(session.scalars(group_query(tag=tag, tag_status=tag_status, kind=kind).where(effective_taken_at.is_not(None)))))
     if not rows:
         return 0
     same_day = [
