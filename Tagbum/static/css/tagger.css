@@ -96,4 +96,5 @@
   max-height: 260px;
   overflow: auto;
   padding-right: 4px;
+  scroll-behavior: smooth;
 }

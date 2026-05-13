@@ -209,6 +209,38 @@ export function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+export function wheelDeltaPixels(event, element = null) {
+  const raw = event.deltaY || event.deltaX || 0;
+  if (event.deltaMode === 1) return raw * 16;
+  if (event.deltaMode === 2) return raw * (element?.clientHeight || window.innerHeight || 800);
+  return raw;
+}
+
+export function smoothScrollBy(element, delta) {
+  if (!element || !delta) return;
+  const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight);
+  const wasPending = element.dataset.smoothScrollPending === "true";
+  const base = wasPending
+    ? clamp(Number(element.dataset.smoothScrollTarget || element.scrollTop), 0, maxScroll)
+    : element.scrollTop;
+  if (wasPending) {
+    element.scrollTop = base;
+  }
+  const target = clamp(base + delta, 0, maxScroll);
+  element.dataset.smoothScrollTarget = String(target);
+  element.dataset.smoothScrollPending = "true";
+  window.clearTimeout(Number(element.dataset.smoothScrollTimer || 0));
+  const timer = window.setTimeout(() => {
+    element.dataset.smoothScrollPending = "false";
+  }, 140);
+  element.dataset.smoothScrollTimer = String(timer);
+  if (typeof element.scrollTo === "function") {
+    element.scrollTo({ top: target, behavior: "smooth" });
+  } else {
+    element.scrollTop = target;
+  }
+}
+
 export function normalizeLon(lon) {
   return ((((lon + 180) % 360) + 360) % 360) - 180;
 }

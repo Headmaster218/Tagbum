@@ -114,6 +114,7 @@ main {
   padding: 28px;
   min-height: 0;
   overflow: auto;
+  scroll-behavior: smooth;
 }
 
 main:has(.gallery-screen) {

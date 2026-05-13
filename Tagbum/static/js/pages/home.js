@@ -7,6 +7,8 @@ import {
   homeState,
   kindBadgesHtml,
   resolveDateBucket,
+  smoothScrollBy,
+  wheelDeltaPixels,
 } from "../core/shared.js";
 
 function renderAssetCard(group) {
@@ -85,7 +87,7 @@ function attachGalleryWheel() {
     const canScroll = scrollRoot.scrollHeight > scrollRoot.clientHeight + 1;
     if (!canScroll) return;
     event.preventDefault();
-    scrollRoot.scrollTop += event.deltaY || event.deltaX;
+    smoothScrollBy(scrollRoot, wheelDeltaPixels(event, scrollRoot));
   }, { capture: true, passive: false });
 }
 
@@ -296,7 +298,7 @@ function attachTimelineEvents() {
   let scrollTimer = null;
   timeline.addEventListener("wheel", (event) => {
     event.preventDefault();
-    timeline.scrollTop += event.deltaY || event.deltaX;
+    smoothScrollBy(timeline, wheelDeltaPixels(event, timeline));
     updateTimelineFromCenter(false);
   }, { capture: true, passive: false });
   timeline.addEventListener("scroll", () => {

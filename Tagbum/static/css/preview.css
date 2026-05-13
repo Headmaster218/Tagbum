@@ -64,6 +64,7 @@
   overflow: auto;
   background: var(--panel);
   padding: 20px;
+  scroll-behavior: smooth;
 }
 
 .preview-panel {

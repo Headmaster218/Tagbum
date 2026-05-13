@@ -131,6 +131,7 @@
   overflow: auto;
   padding-right: 6px;
   overscroll-behavior: contain;
+  scroll-behavior: smooth;
 }
 
 .home-gallery {
@@ -266,6 +267,7 @@
   overflow-x: hidden;
   padding: 0;
   scrollbar-width: none;
+  scroll-behavior: smooth;
   cursor: ns-resize;
 }
 
@@ -275,6 +277,7 @@
 
 .home-timeline.dragging {
   cursor: ns-resize;
+  scroll-behavior: auto;
 }
 
 .home-timeline-ruler {

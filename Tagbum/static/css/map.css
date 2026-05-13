@@ -290,6 +290,7 @@ html[data-theme="dark"] .map-scale-bar {
   overflow: auto;
   padding-right: 4px;
   overscroll-behavior: contain;
+  scroll-behavior: smooth;
 }
 
 .map-cell-thumb {
@@ -354,6 +355,7 @@ html[data-theme="dark"] .map-scale-bar {
   gap: 10px;
   overflow: auto;
   padding: 12px;
+  scroll-behavior: smooth;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
