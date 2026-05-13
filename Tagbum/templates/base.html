@@ -15,7 +15,7 @@
     </script>
     <link rel="stylesheet" href="/static/app.css">
   </head>
-  <body>
+  <body data-map-tile-provider="{{ map_tile_provider|default('osm') }}" data-ui-language="{{ ui_language|default('zh-CN') }}">
     <header class="topbar">
       <a class="brand" href="/">Tagbum</a>
       <div class="topbar-actions">

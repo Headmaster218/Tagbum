@@ -248,8 +248,25 @@ export function wgs84ToGcj02(lon, lat) {
   return { lon: lon + dLon, lat: lat + dLat };
 }
 
+export function gcj02ToWgs84(lon, lat) {
+  if (outOfChina(lon, lat)) return { lon, lat };
+  const offset = wgs84ToGcj02(lon, lat);
+  return {
+    lon: lon * 2 - offset.lon,
+    lat: lat * 2 - offset.lat,
+  };
+}
+
 export function mapDisplayLonLat(lon, lat) {
   return mapState.tileProvider.coordinateSystem === "gcj02" ? wgs84ToGcj02(lon, lat) : { lon, lat };
+}
+
+export function providerDisplayLonLat(provider, lon, lat) {
+  return provider?.coordinateSystem === "gcj02" ? wgs84ToGcj02(lon, lat) : { lon, lat };
+}
+
+export function providerSourceLonLat(provider, lon, lat) {
+  return provider?.coordinateSystem === "gcj02" ? gcj02ToWgs84(lon, lat) : { lon, lat };
 }
 
 export function providerAttribution(provider, dark = false) {

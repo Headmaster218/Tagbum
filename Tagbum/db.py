@@ -1,6 +1,6 @@
 from collections.abc import Iterator
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from .config import NoActiveProfile, settings
@@ -51,6 +51,7 @@ def init_db() -> None:
     settings.resolved_data_dir.mkdir(parents=True, exist_ok=True)
     settings.thumbnail_dir.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema()
 
 
 def get_session() -> Iterator[Session]:
@@ -58,5 +59,16 @@ def get_session() -> Iterator[Session]:
     if engine is None:
         raise NoActiveProfile("No database profile is configured.")
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema()
     with SessionLocal() as session:
         yield session
+
+
+def ensure_runtime_schema() -> None:
+    if engine is None:
+        return
+    inspector = inspect(engine)
+    resource_columns = {column["name"] for column in inspector.get_columns("asset_resources")}
+    if "metadata_json" not in resource_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE asset_resources ADD COLUMN metadata_json TEXT"))

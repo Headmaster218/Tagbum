@@ -2,10 +2,12 @@ import { escapeHtml, mapCellState, previewState, taggerState } from "./js/core/s
 import { initDateStrips } from "./js/features/date-strip.js";
 import {
   centerPreview,
+  closeMapPicker,
   closePreview,
   duplicatePreviewIds,
   galleryContextIds,
   initPreviewModule,
+  isMapPickerOpen,
   movePreview,
   openPreview,
   resetPreviewScale,
@@ -284,7 +286,13 @@ document.addEventListener("submit", async (event) => {
 
 document.addEventListener("keydown", async (event) => {
   if (document.querySelector(".modal.open")) {
-    if (event.key === "Escape") closePreview();
+    if (event.key === "Escape") {
+      if (isMapPickerOpen()) {
+        closeMapPicker();
+      } else {
+        closePreview();
+      }
+    }
     if (event.key === "ArrowLeft") await movePreview(-1);
     if (event.key === "ArrowRight") await movePreview(1);
     if (event.key === "+" || event.key === "=") setPreviewScale(previewState.scale + 0.25);

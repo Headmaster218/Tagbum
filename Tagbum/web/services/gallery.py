@@ -457,15 +457,28 @@ def preview_url(resource: AssetResource) -> str:
     return f"/previews/{resource.id}.jpg"
 
 
+def parse_resource_metadata(resource: AssetResource) -> dict:
+    if not resource.metadata_json:
+        return {}
+    try:
+        data = json.loads(resource.metadata_json)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def group_payload(group: AssetGroup, include_resources: bool = False) -> dict:
     resource_kinds = sorted({payload_kind(resource, group) for resource in group.resources}, key=kind_sort_key)
     taken_at = group_taken_at(group)
     payload = {
         "id": group.id,
+        "group_key": group.group_key,
         "display_name": group.display_name,
         "taken_at": taken_at.isoformat() if taken_at else None,
         "latitude": group.latitude,
         "longitude": group.longitude,
+        "source_root": group.source_root,
+        "source_dir": group.source_dir,
         "thumbnail_url": f"/thumbs/{group.id}.jpg" if group.thumbnail_path else None,
         "tags": sorted(asset_tag.tag.name for asset_tag in group.tags),
         "resource_kinds": resource_kinds,
@@ -478,6 +491,11 @@ def group_payload(group: AssetGroup, include_resources: bool = False) -> dict:
                 "kind": payload_kind(resource, group),
                 "extension": resource.extension,
                 "size_bytes": resource.size_bytes,
+                "mtime": resource.mtime.isoformat() if resource.mtime else None,
+                "width": resource.width,
+                "height": resource.height,
+                "path": resource.path,
+                "metadata": parse_resource_metadata(resource),
                 "url": f"/media/{resource.id}",
                 "preview_url": preview_url(resource),
             }

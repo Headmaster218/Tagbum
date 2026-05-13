@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -46,16 +47,42 @@ def group_key(source_root: Path, path: Path) -> str:
     return f"{rel_parent}/{normalized_stem(path).upper()}"
 
 
-def read_image_metadata(path: Path) -> tuple[int | None, int | None, datetime | None, float | None, float | None]:
+def read_image_metadata(path: Path) -> tuple[int | None, int | None, datetime | None, float | None, float | None, dict]:
     try:
         with Image.open(path) as image:
             width, height = image.size
             exif = image.getexif()
             taken_at = _read_taken_at(exif)
             lat, lon = _read_gps(exif)
-            return width, height, taken_at, lat, lon
+            metadata = _read_exif_metadata(exif)
+            metadata["width"] = width
+            metadata["height"] = height
+            if taken_at is not None:
+                metadata.setdefault("DateTimeOriginal", taken_at.isoformat(sep=" ", timespec="seconds"))
+            if lat is not None and lon is not None:
+                metadata["GPSLatitude"] = lat
+                metadata["GPSLongitude"] = lon
+            return width, height, taken_at, lat, lon, metadata
     except Exception:
-        return None, None, None, None, None
+        return None, None, None, None, None, {}
+
+
+def metadata_json_for_resource(path: Path, kind: str) -> str | None:
+    if kind == "image":
+        _, _, _, _, _, metadata = read_image_metadata(path)
+        return json.dumps(metadata, ensure_ascii=False, sort_keys=True) if metadata else None
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    metadata = {
+        "Path": str(path),
+        "FileName": path.name,
+        "Extension": path.suffix.lower(),
+        "SizeBytes": stat.st_size,
+        "ModifiedAt": datetime.fromtimestamp(stat.st_mtime).isoformat(sep=" ", timespec="seconds"),
+    }
+    return json.dumps(metadata, ensure_ascii=False, sort_keys=True)
 
 
 def build_thumbnail(source: Path, group_id: int) -> Path | None:
@@ -162,6 +189,42 @@ def _read_gps(exif) -> tuple[float | None, float | None]:
     lat = _coord_to_decimal(gps.get("GPSLatitude"), gps.get("GPSLatitudeRef"))
     lon = _coord_to_decimal(gps.get("GPSLongitude"), gps.get("GPSLongitudeRef"))
     return lat, lon
+
+
+def _read_exif_metadata(exif) -> dict:
+    if not exif:
+        return {}
+    metadata: dict[str, str | int | float | list | dict] = {}
+    for tag_id, raw_value in exif.items():
+        tag_name = TAGS.get(tag_id, str(tag_id))
+        if tag_name == "GPSInfo":
+            continue
+        if tag_name == "MakerNote":
+            metadata[tag_name] = "<binary>"
+            continue
+        metadata[tag_name] = _normalize_exif_value(raw_value)
+    return metadata
+
+
+def _normalize_exif_value(value):
+    if isinstance(value, bytes):
+        return f"<{len(value)} bytes>"
+    if isinstance(value, str):
+        return value.strip("\x00")
+    if isinstance(value, (int, float, bool)):
+        return value
+    if hasattr(value, "numerator") and hasattr(value, "denominator"):
+        denominator = getattr(value, "denominator", 1) or 1
+        numerator = getattr(value, "numerator", 0)
+        if denominator == 1:
+            return numerator
+        return round(float(numerator) / float(denominator), 6)
+    if isinstance(value, (list, tuple)):
+        return [_normalize_exif_value(item) for item in value]
+    try:
+        return str(value)
+    except Exception:
+        return "<unsupported>"
 
 
 def _coord_to_decimal(coord, ref) -> float | None:

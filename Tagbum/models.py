@@ -43,6 +43,7 @@ class AssetResource(Base):
     mtime: Mapped[datetime] = mapped_column(DateTime)
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
 
     group: Mapped[AssetGroup] = relationship(back_populates="resources")
 

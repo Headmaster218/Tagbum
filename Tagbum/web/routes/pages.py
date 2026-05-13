@@ -57,6 +57,7 @@ def home(
             "current_date": first_group_date(groups),
             "initial_offset": offset,
             "page_size": HOME_PAGE_SIZE,
+            "map_tile_provider": settings.map_tile_provider,
         },
     )
 
@@ -78,6 +79,7 @@ def tag_page(
             "untagged_count": count_groups(session, tag_status="untagged"),
             "active_status": active_status,
             "current_date": first_group_date(load_groups(session, tag_status=active_status, limit=1)),
+            "map_tile_provider": settings.map_tile_provider,
         },
     )
 
@@ -98,6 +100,7 @@ def filter_page(request: Request, tag: str | None = None, session: Session = Dep
             "total_groups": total_groups,
             "current_date": first_group_date(load_groups(session, filter_expr=filter_expr, limit=1)),
             "page_size": HOME_PAGE_SIZE,
+            "map_tile_provider": settings.map_tile_provider,
         },
     )
 
@@ -144,6 +147,7 @@ def tools_index_page(request: Request) -> HTMLResponse:
             "active_profile": settings.active_profile_name,
             "duplicate_summary": duplicate_summary(),
             "duplicate_status": duplicate_status.copy(),
+            "map_tile_provider": settings.map_tile_provider,
         },
     )
 
@@ -183,5 +187,6 @@ def duplicate_tools_page(
             "cache_path": duplicate_cache_path(),
             "quarantine_path": duplicate_quarantine_root(),
             "active_profile": settings.active_profile_name,
+            "map_tile_provider": settings.map_tile_provider,
         },
     )

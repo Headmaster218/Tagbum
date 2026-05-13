@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from datetime import date, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -140,6 +141,52 @@ def api_map_cell(
 
 @router.get("/api/groups/{group_id}")
 def api_group(group_id: int, session: Session = Depends(get_session)) -> dict:
+    return group_payload(get_group(session, group_id), include_resources=True)
+
+
+@router.patch("/api/groups/{group_id}/metadata")
+def update_group_metadata(group_id: int, payload: dict = Body(...), session: Session = Depends(get_session)) -> dict:
+    group = get_group(session, group_id)
+
+    if "display_name" in payload:
+        display_name = str(payload.get("display_name") or "").strip()
+        if not display_name:
+            raise HTTPException(status_code=400, detail="Display name is required.")
+        group.display_name = display_name
+
+    if "taken_at" in payload:
+        raw_taken_at = payload.get("taken_at")
+        if raw_taken_at in (None, ""):
+            group.taken_at = None
+        else:
+            try:
+                group.taken_at = datetime.fromisoformat(str(raw_taken_at))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="Invalid taken_at value.") from exc
+
+    lat_provided = "latitude" in payload
+    lon_provided = "longitude" in payload
+    if lat_provided or lon_provided:
+        raw_lat = payload.get("latitude")
+        raw_lon = payload.get("longitude")
+        if raw_lat in (None, "") and raw_lon in (None, ""):
+            group.latitude = None
+            group.longitude = None
+        else:
+            if raw_lat in (None, "") or raw_lon in (None, ""):
+                raise HTTPException(status_code=400, detail="Latitude and longitude must be set together.")
+            try:
+                latitude = float(raw_lat)
+                longitude = float(raw_lon)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail="Invalid latitude or longitude.") from exc
+            if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+                raise HTTPException(status_code=400, detail="Coordinates are out of range.")
+            group.latitude = latitude
+            group.longitude = longitude
+
+    session.commit()
+    session.refresh(group)
     return group_payload(get_group(session, group_id), include_resources=True)
 
 

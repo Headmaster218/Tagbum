@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -119,6 +120,7 @@ def import_folder(
                         mtime=mtime,
                         width=record["width"],
                         height=record["height"],
+                        metadata_json=record["metadata_json"],
                     )
                 )
                 created_resources += 1
@@ -129,6 +131,7 @@ def import_folder(
                 existing.mtime = mtime
                 existing.width = record["width"]
                 existing.height = record["height"]
+                existing.metadata_json = record["metadata_json"]
                 updated_resources += 1
 
             if group.thumbnail_path is None and kind in {"image", "video"}:
@@ -195,9 +198,9 @@ def _read_file_records(
 def _read_file_record(source_root: Path, path: Path) -> dict:
     stat = path.stat()
     kind = classify_resource(path)
-    width, height, taken_at, lat, lon = (None, None, None, None, None)
+    width, height, taken_at, lat, lon, metadata = (None, None, None, None, None, {})
     if kind == "image":
-        width, height, taken_at, lat, lon = read_image_metadata(path)
+        width, height, taken_at, lat, lon, metadata = read_image_metadata(path)
     return {
         "path": path,
         "stat": stat,
@@ -208,6 +211,7 @@ def _read_file_record(source_root: Path, path: Path) -> dict:
         "taken_at": taken_at,
         "lat": lat,
         "lon": lon,
+        "metadata_json": json.dumps(metadata, ensure_ascii=False, sort_keys=True) if metadata else None,
     }
 
 
