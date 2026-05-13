@@ -30,7 +30,7 @@
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #faf9f5;
+  background: var(--surface-soft);
 }
 
 .duplicate-thumb {
@@ -41,7 +41,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #e9e2d7;
+  background: var(--thumb-bg);
 }
 
 .duplicate-thumb img {

@@ -56,7 +56,7 @@
   width: 54px;
   height: 84px;
   padding: 0;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--panel);
   font-size: 32px;
 }
 
@@ -78,8 +78,8 @@
   width: 40px;
   height: 40px;
   padding: 0;
-  border-color: rgba(255, 255, 255, 0.45);
-  background: rgba(255, 255, 255, 0.88);
+  border-color: var(--line);
+  background: var(--panel);
   font-size: 26px;
   line-height: 1;
 }
@@ -134,7 +134,7 @@
   border-radius: 7px;
   padding: 8px;
   overflow-wrap: anywhere;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--panel);
 }
 
 .resource-list-item.active .resource-list-main {

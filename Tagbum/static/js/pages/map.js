@@ -2,6 +2,7 @@ import {
   MAP_DENSITY_LEVELS,
   MAP_TILE_PROVIDERS,
   clamp,
+  currentTheme,
   escapeHtml,
   groupCache,
   imageResource,
@@ -12,6 +13,7 @@ import {
   mapState,
   normalizeLon,
   outOfChina,
+  providerAttribution,
   setMapCenterFromWorld,
   tileUrl,
   videoResource,
@@ -21,6 +23,10 @@ import {
 
 const TILE_FALLBACK_PROVIDER = MAP_TILE_PROVIDERS.osm;
 const AMAP_OUTSIDE_CHINA_MAX_ZOOM = 9.1;
+
+function mapThemeIsDark() {
+  return currentTheme() === "dark";
+}
 
 function effectiveTileProvider() {
   if (
@@ -166,7 +172,7 @@ function renderMap() {
 }
 
 function fallbackTileUrl(zoom, x, y) {
-  return tileUrl(TILE_FALLBACK_PROVIDER, zoom, x, y);
+  return tileUrl(TILE_FALLBACK_PROVIDER, zoom, x, y, { dark: mapThemeIsDark() });
 }
 
 function renderMapTiles(map) {
@@ -197,7 +203,7 @@ function renderMapTiles(map) {
       html.push(`
         <img
           class="map-tile"
-          src="${tileUrl(provider, tileZoom, wrappedX, y)}"
+          src="${tileUrl(provider, tileZoom, wrappedX, y, { dark: mapThemeIsDark() })}"
           data-map-tile
           data-provider="${provider.name}"
           data-tile-zoom="${tileZoom}"
@@ -220,7 +226,8 @@ function renderMapTiles(map) {
   const attribution = map.querySelector(".map-attribution");
   if (attribution) {
     const fallbackNote = provider !== mapState.tileProvider ? " · 国外高倍缩放自动回退 OSM" : "";
-    attribution.textContent = `${provider.attribution}${fallbackNote}`;
+    attribution.textContent = `${providerAttribution(provider, mapThemeIsDark())}${fallbackNote}`;
+    attribution.textContent = `${providerAttribution(provider, mapThemeIsDark())}${provider !== mapState.tileProvider ? " / fallback to OSM outside China" : ""}`;
   }
 }
 
@@ -565,5 +572,9 @@ export function initMap() {
     closeMapCellPanel();
     renderMap();
     scheduleMapRefresh();
+  });
+
+  window.addEventListener("tagbum:themechange", () => {
+    renderMap();
   });
 }

@@ -42,7 +42,7 @@
   margin-bottom: 16px;
   padding: 14px;
   border-color: #b52d2d;
-  background: #fff7f4;
+  background: var(--surface-warning);
 }
 
 .settings-warning span {
@@ -64,7 +64,7 @@
   height: 10px;
   overflow: hidden;
   border-radius: 999px;
-  background: #eee9df;
+  background: var(--surface-progress);
 }
 
 .scan-progress div {
@@ -88,7 +88,7 @@
   display: grid;
   gap: 4px;
   padding: 8px;
-  background: #f4f1ea;
+  background: var(--surface-muted);
   border-radius: 7px;
 }
 

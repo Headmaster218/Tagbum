@@ -40,6 +40,10 @@
   touch-action: none;
 }
 
+html[data-theme="dark"] .map-canvas {
+  background: #0f1412;
+}
+
 .map-canvas.dragging {
   cursor: grabbing;
 }
@@ -88,6 +92,12 @@
   transform: translateX(-50%) rotate(45deg);
 }
 
+html[data-theme="dark"] .map-bubble::after {
+  background: #20241f;
+  border-right-color: rgba(255, 255, 255, 0.14);
+  border-bottom-color: rgba(255, 255, 255, 0.14);
+}
+
 .map-bubble-thumb {
   position: relative;
   z-index: 1;
@@ -98,6 +108,11 @@
   border: 3px solid #ffffff;
   border-radius: 8px;
   background: #e9e2d7;
+}
+
+html[data-theme="dark"] .map-bubble-thumb {
+  border-color: #20241f;
+  background: #2a2e28;
 }
 
 .map-bubble-thumb img {
@@ -125,12 +140,16 @@
   text-align: center;
 }
 
+html[data-theme="dark"] .map-bubble-count {
+  border-color: #20241f;
+}
+
 .map-attribution {
   position: absolute;
   right: 8px;
   bottom: 6px;
   padding: 3px 6px;
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--panel);
   color: var(--muted);
   border-radius: 4px;
   font-size: 11px;
@@ -142,7 +161,7 @@
   bottom: 8px;
   z-index: 3;
   padding: 5px 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--panel);
   color: var(--muted);
   border-radius: 6px;
   font-size: 12px;
@@ -163,7 +182,7 @@
   min-height: 38px;
   padding: 0 12px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--panel);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   font-size: 18px;
   font-weight: 700;
@@ -182,7 +201,7 @@
   display: grid;
   gap: 4px;
   padding: 6px 8px;
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--panel);
   border-radius: 6px;
 }
 
@@ -191,6 +210,10 @@
   height: 4px;
   border-radius: 999px;
   background: #111;
+}
+
+html[data-theme="dark"] .map-scale-bar {
+  background: #eef2e9;
 }
 
 .map-scale-label {
@@ -223,7 +246,7 @@
   padding: 14px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.93);
+  background: var(--panel);
   box-shadow: 0 18px 54px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(10px);
   pointer-events: auto;

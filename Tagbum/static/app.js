@@ -38,6 +38,30 @@ import {
 import { initSettingsPage } from "./js/pages/settings.js";
 import { initToolsPage } from "./js/pages/tools.js";
 
+function activeTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem("tagbum.theme", theme);
+  window.dispatchEvent(new CustomEvent("tagbum:themechange", { detail: { theme } }));
+  const button = document.querySelector("[data-theme-toggle]");
+  if (button) {
+    const nextLabel = theme === "dark" ? "浅色" : "深色";
+    button.textContent = nextLabel;
+    button.setAttribute("aria-label", `切换到${nextLabel}模式`);
+    button.setAttribute("title", `切换到${nextLabel}模式`);
+  }
+}
+
+function initThemeToggle() {
+  applyTheme(activeTheme());
+  document.querySelector("[data-theme-toggle]")?.addEventListener("click", () => {
+    applyTheme(activeTheme() === "dark" ? "light" : "dark");
+  });
+}
+
 document.addEventListener("click", async (event) => {
   const mapCell = event.target.closest("[data-map-cell-row]");
   if (mapCell) {
@@ -278,6 +302,7 @@ document.addEventListener("keydown", async (event) => {
 });
 
 initPreviewModule();
+initThemeToggle();
 initTagger();
 initDateStrips();
 initHomeGallery();

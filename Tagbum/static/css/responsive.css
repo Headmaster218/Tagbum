@@ -1,5 +1,6 @@
 @media (max-width: 760px) {
   .topbar,
+  .topbar-actions,
   .page-head {
     align-items: stretch;
     flex-direction: column;

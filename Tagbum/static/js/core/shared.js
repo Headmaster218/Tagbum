@@ -68,16 +68,22 @@ export const MAP_TILE_PROVIDERS = {
   osm: {
     name: "OpenStreetMap",
     url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: "© OpenStreetMap contributors",
+    darkUrl: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+    attribution: "OpenStreetMap contributors",
+    darkAttribution: "OpenStreetMap contributors / CARTO",
     coordinateSystem: "wgs84",
     subdomains: [""],
+    darkSubdomains: ["a", "b", "c", "d"],
   },
   amap: {
-    name: "高德地图",
+    name: "Amap",
     url: "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}",
-    attribution: "© 高德地图",
+    darkUrl: "https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}",
+    attribution: "Amap",
+    darkAttribution: "Amap",
     coordinateSystem: "gcj02",
     subdomains: ["1", "2", "3", "4"],
+    darkSubdomains: ["1", "2", "3", "4"],
   },
 };
 
@@ -114,6 +120,10 @@ export function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+export function currentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 
 export function formatMonthLabel(value) {
@@ -155,7 +165,7 @@ export function formatMonthKey(value) {
 }
 
 export function formatMonthTitle(value) {
-  if (!value) return "未知时间";
+  if (!value) return "Unknown";
   const [year, month] = value.split("-");
   return `${year}/${Number(month)}`;
 }
@@ -165,7 +175,9 @@ export function imageResource(group) {
 }
 
 export function videoResource(group) {
-  return group.resources?.find((item) => item.kind === "live") || group.resources?.find((item) => item.kind === "video") || null;
+  return group.resources?.find((item) => item.kind === "live")
+    || group.resources?.find((item) => item.kind === "video")
+    || null;
 }
 
 export function imageUrl(resource) {
@@ -240,10 +252,18 @@ export function mapDisplayLonLat(lon, lat) {
   return mapState.tileProvider.coordinateSystem === "gcj02" ? wgs84ToGcj02(lon, lat) : { lon, lat };
 }
 
-export function tileUrl(provider, zoom, x, y) {
-  const subdomains = provider.subdomains || [""];
+export function providerAttribution(provider, dark = false) {
+  return dark ? (provider.darkAttribution || provider.attribution) : provider.attribution;
+}
+
+export function tileUrl(provider, zoom, x, y, options = {}) {
+  const dark = options.dark && provider.darkUrl;
+  const template = dark ? provider.darkUrl : provider.url;
+  const subdomains = dark
+    ? (provider.darkSubdomains || provider.subdomains || [""])
+    : (provider.subdomains || [""]);
   const subdomain = subdomains[Math.abs(x + y) % subdomains.length] || "";
-  return provider.url
+  return template
     .replace("{s}", subdomain)
     .replace("{z}", String(zoom))
     .replace("{x}", String(x))

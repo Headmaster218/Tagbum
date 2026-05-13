@@ -7,6 +7,31 @@
   --line: #ded9ce;
   --accent: #246b5a;
   --accent-strong: #174b3f;
+  --topbar-bg: rgba(255, 255, 255, 0.92);
+  --button-hover-bg: rgba(36, 107, 90, 0.08);
+  --thumb-bg: #e9e2d7;
+  --surface-soft: #faf9f5;
+  --surface-muted: #f4f1ea;
+  --surface-warning: #fff7f4;
+  --surface-progress: #eee9df;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161814;
+  --panel: #20241f;
+  --text: #eef2e9;
+  --muted: #a8b0a2;
+  --line: #384136;
+  --accent: #6eb79c;
+  --accent-strong: #c9f0df;
+  --topbar-bg: rgba(24, 28, 24, 0.88);
+  --button-hover-bg: rgba(110, 183, 156, 0.16);
+  --thumb-bg: #2a2e28;
+  --surface-soft: #242922;
+  --surface-muted: #2a3028;
+  --surface-warning: #3a2622;
+  --surface-progress: #2b3029;
 }
 
 * {
@@ -42,7 +67,7 @@ a {
   justify-content: space-between;
   gap: 24px;
   padding: 14px 28px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--topbar-bg);
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(14px);
 }
@@ -50,6 +75,14 @@ a {
 .brand {
   font-size: 20px;
   font-weight: 750;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  min-width: 0;
 }
 
 nav {
@@ -74,6 +107,7 @@ nav a:hover,
 button:hover,
 .filter-chip:hover {
   border-color: var(--accent);
+  background: var(--button-hover-bg);
 }
 
 main {
@@ -84,6 +118,14 @@ main {
 
 main:has(.gallery-screen) {
   overflow: hidden;
+}
+
+html[data-theme="dark"] .topbar,
+html[data-theme="dark"] nav a,
+html[data-theme="dark"] button,
+html[data-theme="dark"] .filter-chip,
+html[data-theme="dark"] .asset-card {
+  box-shadow: none;
 }
 
 .page-head {
@@ -128,7 +170,7 @@ main:has(.gallery-screen) {
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: #e9e2d7;
+  background: var(--thumb-bg);
 }
 
 .preview-button img {
@@ -204,6 +246,11 @@ main:has(.gallery-screen) {
   color: var(--muted);
   font-size: 13px;
   font-weight: 650;
+}
+
+.theme-toggle {
+  min-width: 64px;
+  font-weight: 700;
 }
 
 .inline-form {
