@@ -62,6 +62,7 @@ export const filterState = {
   timelineScrollTop: 0,
   tag: "",
   kind: "",
+  tagGraph: null,
 };
 
 export const MAP_TILE_PROVIDERS = {

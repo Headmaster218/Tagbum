@@ -1,4 +1,4 @@
-import { escapeHtml, groupCache, imageResource, imageUrl, kindBadgesHtml, taggerState, videoResource } from "../core/shared.js";
+import { groupCache, imageResource, imageUrl, kindBadgesHtml, taggerState, videoResource } from "../core/shared.js";
 import { addTagToGroup, refreshTagLibrary, renderCurrentTags, removeTagFromGroup } from "../features/tags.js";
 
 export function currentTaggerGroup() {
@@ -30,35 +30,35 @@ async function loadTaggerWindow(offset) {
   taggerState.loading = false;
 }
 
+function placeholderIsActive() {
+  const imageElement = document.querySelector("#tagger-image");
+  return !imageElement || imageElement.hidden;
+}
+
 function setTaggerLive(show) {
   const group = currentTaggerGroup();
-  const image = document.querySelector("#tagger-image");
+  const imageElement = document.querySelector("#tagger-image");
   const live = document.querySelector("#tagger-live");
   const video = group ? videoResource(group) : null;
-  if (!image || !live || !video || placeholderIsActive()) return;
+  if (!imageElement || !live || !video || placeholderIsActive()) return;
   if (show) {
     live.src = video.url;
     live.hidden = false;
-    image.classList.add("under-live");
+    imageElement.classList.add("under-live");
     live.currentTime = 0;
     live.play().catch(() => {});
   } else {
     live.pause();
     live.hidden = true;
-    image.classList.remove("under-live");
+    imageElement.classList.remove("under-live");
   }
-}
-
-function placeholderIsActive() {
-  const image = document.querySelector("#tagger-image");
-  return !image || image.hidden;
 }
 
 export function renderTagger() {
   const root = document.querySelector(".tagger");
   if (!root) return;
   const group = currentTaggerGroup();
-  const image = document.querySelector("#tagger-image");
+  const imageElement = document.querySelector("#tagger-image");
   const live = document.querySelector("#tagger-live");
   const placeholder = document.querySelector("#tagger-placeholder");
   const title = document.querySelector("#tagger-title");
@@ -67,11 +67,11 @@ export function renderTagger() {
   const position = document.querySelector("#tagger-position");
 
   setTaggerLive(false);
-  image.classList.remove("under-live");
+  imageElement.classList.remove("under-live");
   live.removeAttribute("src");
 
   if (!group) {
-    image.hidden = true;
+    imageElement.hidden = true;
     live.hidden = true;
     placeholder.hidden = false;
     placeholder.textContent = "没有可处理的照片";
@@ -84,13 +84,14 @@ export function renderTagger() {
   }
 
   const liveVideo = videoResource(group);
-  if (group.thumbnail_url) {
-    image.src = group.thumbnail_url;
-    image.alt = group.display_name;
-    image.hidden = false;
+  const stillImage = imageResource(group);
+  if (group.thumbnail_url || stillImage) {
+    imageElement.src = group.thumbnail_url || imageUrl(stillImage);
+    imageElement.alt = group.display_name;
+    imageElement.hidden = false;
     placeholder.hidden = true;
   } else {
-    image.hidden = true;
+    imageElement.hidden = true;
     placeholder.hidden = false;
     placeholder.textContent = group.display_name;
   }
@@ -145,6 +146,36 @@ export async function copyPreviousTags() {
   Object.assign(group, updated);
   renderTagger();
   await refreshTagLibrary();
+}
+
+export async function completeCurrentTags() {
+  const group = currentTaggerGroup();
+  if (!group) return;
+  const button = document.querySelector("[data-complete-tags]");
+  if (button) button.disabled = true;
+  const response = await fetch(`/api/groups/${group.id}/tag-complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ completed: true }),
+  });
+  if (button) button.disabled = false;
+  if (!response.ok) return;
+  const updated = await response.json();
+  groupCache.set(Number(updated.id), updated);
+
+  if (taggerState.status === "untagged") {
+    taggerState.groups.splice(taggerState.index, 1);
+    taggerState.total = Math.max(0, taggerState.total - 1);
+    if (taggerState.index >= taggerState.groups.length) {
+      taggerState.index = Math.max(0, taggerState.groups.length - 1);
+    }
+    if (taggerState.baseOffset + taggerState.groups.length < taggerState.total) await loadTaggerChunk();
+    renderTagger();
+    return;
+  }
+
+  Object.assign(group, updated);
+  await moveTagger(1);
 }
 
 export async function initTagger() {

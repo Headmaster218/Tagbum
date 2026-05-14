@@ -3,7 +3,7 @@
 <section class="page-head">
   <div>
     <h1>打标签</h1>
-    <p>逐张处理照片。默认显示未打标签的照片，点标签库即可快速加到当前照片。</p>
+    <p>逐张处理照片。可以给同一张照片添加多个标签，点击确认完成后才会进入已分类。</p>
   </div>
   <div class="tag-progress">
     <span id="tagger-position">0</span> / {{ total_groups }}
@@ -11,8 +11,8 @@
 </section>
 
 <section class="filters">
-  <a class="filter-chip {% if active_status == 'untagged' %}active{% endif %}" href="/tag?status=untagged">未打标签 <span>{{ untagged_count }}</span></a>
-  <a class="filter-chip {% if active_status == 'tagged' %}active{% endif %}" href="/tag?status=tagged">已打标签 <span>{{ tagged_count }}</span></a>
+  <a class="filter-chip {% if active_status == 'untagged' %}active{% endif %}" href="/tag?status=untagged">未完成 <span>{{ untagged_count }}</span></a>
+  <a class="filter-chip {% if active_status == 'tagged' %}active{% endif %}" href="/tag?status=tagged">已完成 <span>{{ tagged_count }}</span></a>
 </section>
 
 <section class="toolbar tagger-jumpbar">
@@ -53,6 +53,7 @@
 
     <div class="tagger-actions">
       <button type="button" data-copy-prev-tags>复制上一张标签</button>
+      <button type="button" class="primary-button" data-complete-tags>确认完成，下一张</button>
     </div>
 
     <form id="quick-tag-form" class="tag-form">
@@ -61,7 +62,10 @@
     </form>
 
     <section>
-      <h3>标签库</h3>
+      <div class="tag-section-head">
+        <h3>标签库</h3>
+        <button type="button" data-open-tag-graph>关系管理</button>
+      </div>
       <div id="tag-library" class="chips tag-library">
         {% for name, count in tags %}
           <button class="chip tag-option" type="button" data-tag-name="{{ name }}">{{ name }} <span>{{ count }}</span></button>

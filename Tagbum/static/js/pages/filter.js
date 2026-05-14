@@ -10,6 +10,7 @@ import {
   smoothScrollBy,
   wheelDeltaPixels,
 } from "../core/shared.js";
+import { fetchTagGraph } from "../features/tag-graph.js";
 
 const FILTER_MINIFY_KEY = "tagbum.filterBuilderMinified";
 
@@ -42,6 +43,7 @@ function normalizeNode(node) {
       kind: "condition",
       field: node.field === "resource" ? "resource" : "tag",
       value: String(node.value || ""),
+      include_descendants: node.include_descendants !== false,
       negate: Boolean(node.negate),
     };
   }
@@ -68,6 +70,20 @@ function resourceOptionList() {
 
 function tagOptionList() {
   return filterState.tagOptions || [];
+}
+
+function descendantOptions(tagName) {
+  const graph = filterState.tagGraph;
+  if (!graph || !tagName) return [];
+  const found = new Set();
+  const queue = [...(graph.children?.[tagName] || [])];
+  while (queue.length) {
+    const name = queue.shift();
+    if (found.has(name)) continue;
+    found.add(name);
+    queue.push(...(graph.children?.[name] || []));
+  }
+  return [...found].sort();
 }
 
 function updateExpressionAtPath(path, updater) {
@@ -108,14 +124,31 @@ function addGroup(path) {
 
 function renderCondition(node, path) {
   const tagOptions = tagOptionList()
-    .map(([name, count]) => `<option value="${escapeHtml(name)}"${node.value === name ? " selected" : ""}>${escapeHtml(name)} (${count})</option>`)
+    .map(([name]) => `<option value="${escapeHtml(name)}"></option>`)
     .join("");
   const resourceOptions = resourceOptionList()
     .map(([value, label]) => `<option value="${escapeHtml(value)}"${node.value === value ? " selected" : ""}>${escapeHtml(label)}</option>`)
     .join("");
-  const valueControl = node.field === "tag"
+  const subTags = descendantOptions(node.value);
+  let valueControl = node.field === "tag"
     ? `<select data-filter-value="${path.join(".")}"><option value="">选择标签</option>${tagOptions}</select>`
     : `<select data-filter-value="${path.join(".")}"><option value="">选择类型</option>${resourceOptions}</select>`;
+  if (node.field === "tag") {
+    valueControl = `
+      <input list="filter-tag-options" value="${escapeHtml(node.value || "")}" placeholder="搜索标签" data-filter-value="${path.join(".")}">
+      <label class="filter-negate-toggle">
+        <input type="checkbox" data-filter-include-descendants="${path.join(".")}" ${node.include_descendants !== false ? "checked" : ""}>
+        <span>包含子标签</span>
+      </label>
+      ${subTags.length ? `
+        <select data-filter-child-picker="${path.join(".")}">
+          <option value="">所有子标签</option>
+          ${subTags.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
+        </select>
+      ` : ""}
+      <datalist id="filter-tag-options">${tagOptions}</datalist>
+    `;
+  }
   return `
     <div class="filter-condition" data-filter-path="${path.join(".")}">
       <label class="filter-negate-toggle">
@@ -162,6 +195,78 @@ function renderGroup(node, path = [], isRoot = false) {
   `;
 }
 
+function renderConditionClean(node, path) {
+  const pathKey = path.join(".");
+  const tagOptions = tagOptionList()
+    .map(([name]) => `<option value="${escapeHtml(name)}"></option>`)
+    .join("");
+  const resourceOptions = resourceOptionList()
+    .map(([value, label]) => `<option value="${escapeHtml(value)}"${node.value === value ? " selected" : ""}>${escapeHtml(label)}</option>`)
+    .join("");
+  const subTags = descendantOptions(node.value);
+  const valueControl = node.field === "tag"
+    ? `
+      <input list="filter-tag-options" value="${escapeHtml(node.value || "")}" placeholder="搜索标签" data-filter-value="${pathKey}">
+      <label class="filter-negate-toggle">
+        <input type="checkbox" data-filter-include-descendants="${pathKey}" ${node.include_descendants !== false ? "checked" : ""}>
+        <span>包含子标签</span>
+      </label>
+      ${subTags.length ? `
+        <select data-filter-child-picker="${pathKey}">
+          <option value="">所有子标签</option>
+          ${subTags.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("")}
+        </select>
+      ` : ""}
+      <datalist id="filter-tag-options">${tagOptions}</datalist>
+    `
+    : `<select data-filter-value="${pathKey}"><option value="">选择类型</option>${resourceOptions}</select>`;
+  return `
+    <div class="filter-condition" data-filter-path="${pathKey}">
+      <label class="filter-negate-toggle">
+        <input type="checkbox" data-filter-negate="${pathKey}" ${node.negate ? "checked" : ""}>
+        <span>非</span>
+      </label>
+      <select data-filter-field="${pathKey}">
+        <option value="tag"${node.field === "tag" ? " selected" : ""}>标签</option>
+        <option value="resource"${node.field === "resource" ? " selected" : ""}>资源类型</option>
+      </select>
+      ${valueControl}
+      <button type="button" data-filter-remove="${pathKey}">删除</button>
+    </div>
+  `;
+}
+
+function renderGroupClean(node, path = [], isRoot = false) {
+  const pathKey = path.join(".");
+  const items = node.items.map((item, index) => {
+    const childPath = [...path, index];
+    return item.kind === "group" ? renderGroupClean(item, childPath) : renderConditionClean(item, childPath);
+  }).join("");
+  return `
+    <section class="filter-group ${isRoot ? "is-root" : ""}" data-filter-group="${pathKey}">
+      <header class="filter-group-head">
+        <div class="filter-group-meta">
+          <strong>${isRoot ? "根规则组" : "子规则组"}</strong>
+          <select data-filter-op="${pathKey}">
+            <option value="and"${node.op === "and" ? " selected" : ""}>匹配全部（AND）</option>
+            <option value="or"${node.op === "or" ? " selected" : ""}>匹配任一（OR）</option>
+          </select>
+          <label class="filter-negate-toggle">
+            <input type="checkbox" data-filter-group-negate="${pathKey}" ${node.negate ? "checked" : ""}>
+            <span>整组取反</span>
+          </label>
+        </div>
+        <div class="filter-group-actions">
+          <button type="button" data-filter-add-condition="${pathKey}">加条件</button>
+          <button type="button" data-filter-add-group="${pathKey}">加分组</button>
+          ${isRoot ? "" : `<button type="button" data-filter-remove="${pathKey}">删除分组</button>`}
+        </div>
+      </header>
+      <div class="filter-group-body">${items}</div>
+    </section>
+  `;
+}
+
 function setBuilderMinified(minified) {
   const root = document.querySelector("[data-filter-builder-root]");
   const toggle = document.querySelector("[data-filter-toggle-minify]");
@@ -174,7 +279,7 @@ function setBuilderMinified(minified) {
 function renderBuilder() {
   const tree = document.querySelector("[data-filter-builder-tree]");
   if (!tree) return;
-  tree.innerHTML = renderGroup(currentExpression(), [], true);
+  tree.innerHTML = renderGroupClean(currentExpression(), [], true);
 }
 
 function renderAssetCard(group) {
@@ -557,6 +662,23 @@ function attachBuilderEvents() {
       });
       return;
     }
+    const includeDescendants = event.target.closest("[data-filter-include-descendants]");
+    if (includeDescendants) {
+      const path = includeDescendants.dataset.filterIncludeDescendants.split(".").map(Number);
+      updateExpressionAtPath(path, (node) => {
+        node.include_descendants = includeDescendants.checked;
+      });
+      return;
+    }
+    const childPicker = event.target.closest("[data-filter-child-picker]");
+    if (childPicker && childPicker.value) {
+      const path = childPicker.dataset.filterChildPicker.split(".").map(Number);
+      updateExpressionAtPath(path, (node) => {
+        node.value = childPicker.value;
+        node.include_descendants = true;
+      });
+      return;
+    }
     const negate = event.target.closest("[data-filter-negate]");
     if (negate) {
       const path = negate.dataset.filterNegate.split(".").map(Number);
@@ -632,6 +754,7 @@ export async function initFilterGallery() {
   filterState.pageSize = Number(root.dataset.pageSize || 72);
   filterState.tagOptions = readJsonScript("[data-filter-tags]") || [];
   filterState.resourceOptions = readJsonScript("[data-filter-resource-options]") || [];
+  filterState.tagGraph = await fetchTagGraph();
   filterState.expression = normalizeNode(readJsonScript("[data-filter-initial-expr]") || defaultGroup());
   filterState.chunks = new Map();
   filterState.loadingOffsets = new Set();
@@ -643,6 +766,11 @@ export async function initFilterGallery() {
   attachBuilderEvents();
   attachTimelineEvents();
   attachGalleryWheel();
+  window.addEventListener("tagbum:taggraphchange", async () => {
+    filterState.tagGraph = await fetchTagGraph({ force: true });
+    renderBuilder();
+    await refreshTimelineAndResults();
+  });
 
   const query = new URLSearchParams();
   query.set("filter_expr", serializeExpression());

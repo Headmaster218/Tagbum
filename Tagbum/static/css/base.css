@@ -254,6 +254,174 @@ html[data-theme="dark"] .asset-card {
   font-weight: 700;
 }
 
+.explicit-tag {
+  border-color: var(--accent);
+  background: var(--button-hover-bg);
+  color: var(--accent-strong);
+}
+
+.inferred-tag {
+  opacity: 0.68;
+  background: var(--surface-soft);
+}
+
+.tag-cluster,
+.tag-chain-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tag-chain-list {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tag-hierarchy {
+  display: grid;
+  gap: 0;
+  min-width: 180px;
+}
+
+.tag-hierarchy-level {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-height: 34px;
+}
+
+.tag-hierarchy-level:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 24px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--line-strong);
+}
+
+.tag-hierarchy-depth {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-hierarchy-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-graph-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: none;
+  place-items: center;
+  padding: 28px;
+  background: rgba(20, 24, 22, 0.7);
+}
+
+.tag-graph-modal.open {
+  display: grid;
+}
+
+.tag-graph-card {
+  display: grid;
+  gap: 16px;
+  width: min(980px, calc(100vw - 56px));
+  max-height: calc(100vh - 56px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.tag-graph-card header,
+.tag-graph-form,
+.tag-relation-row,
+.tag-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tag-graph-card h2,
+.tag-graph-card h3,
+.tag-section-head h3 {
+  margin: 0;
+}
+
+.tag-graph-form {
+  justify-content: flex-start;
+  align-items: end;
+}
+
+.tag-graph-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.tag-graph-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.8fr);
+  gap: 16px;
+}
+
+.tag-graph-tree,
+.tag-graph-relations {
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  max-height: 52vh;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.tag-graph-tree ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.tag-graph-tree li {
+  margin: 6px 0;
+}
+
+.tag-graph-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-graph-node span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tag-relation-row {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
 .inline-form {
   display: inline-flex;
   align-items: center;

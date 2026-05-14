@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -20,6 +20,7 @@ class AssetGroup(Base):
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
     thumbnail_path: Mapped[str | None] = mapped_column(Text)
+    tag_completed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -71,3 +72,14 @@ class AssetTag(Base):
 
     group: Mapped[AssetGroup] = relationship(back_populates="tags")
     tag: Mapped[Tag] = relationship(back_populates="groups")
+
+
+class TagRelation(Base):
+    __tablename__ = "tag_relations"
+    __table_args__ = (UniqueConstraint("parent_tag_id", "child_tag_id", name="uq_tag_relation"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    parent_tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), index=True)
+    child_tag_id: Mapped[int] = mapped_column(ForeignKey("tags.id"), index=True)
+    relation_type: Mapped[str] = mapped_column(String(32), default="parent", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

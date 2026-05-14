@@ -15,6 +15,7 @@ import {
   setPreviewScale,
 } from "./js/features/preview.js";
 import { addTagToGroup, removeTagFromGroup } from "./js/features/tags.js";
+import { initTagGraphModule } from "./js/features/tag-graph.js";
 import { initHomeGallery } from "./js/pages/home.js";
 import { initFilterGallery } from "./js/pages/filter.js";
 import {
@@ -28,6 +29,7 @@ import {
   updateMapCellGroup,
 } from "./js/pages/map.js";
 import {
+  completeCurrentTags,
   copyPreviousTags,
   currentTaggerGroup,
   initTagger,
@@ -199,6 +201,11 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  if (event.target.closest("[data-complete-tags]")) {
+    await completeCurrentTags();
+    return;
+  }
+
   const tagOption = event.target.closest("[data-tag-name]");
   if (tagOption) {
     const group = currentTaggerGroup();
@@ -310,6 +317,7 @@ document.addEventListener("keydown", async (event) => {
 });
 
 initPreviewModule();
+initTagGraphModule();
 initThemeToggle();
 initTagger();
 initDateStrips();

@@ -22,6 +22,7 @@ from ..services.gallery import (
     total_pages,
 )
 from ..services.settings import active_database_exists, profile_payload
+from ..services.tag_graph import expand_filter_expression
 from ..state import duplicate_status, scan_status
 from ...duplicates import (
     cache_path as duplicate_cache_path,
@@ -89,7 +90,8 @@ def filter_page(request: Request, tag: str | None = None, session: Session = Dep
     kind = request.query_params.get("kind")
     raw_filter = request.query_params.get("filter_expr")
     filter_expr = normalize_filter_expression(raw_filter, tag=tag, kind=kind)
-    total_groups = count_groups(session, filter_expr=filter_expr)
+    expanded_filter = expand_filter_expression(session, filter_expr)
+    total_groups = count_groups(session, filter_expr=expanded_filter)
     return templates.TemplateResponse(
         request,
         "filter.html",
@@ -98,7 +100,7 @@ def filter_page(request: Request, tag: str | None = None, session: Session = Dep
             "resource_options": RESOURCE_FILTER_OPTIONS,
             "initial_filter_expr": filter_expr,
             "total_groups": total_groups,
-            "current_date": first_group_date(load_groups(session, filter_expr=filter_expr, limit=1)),
+            "current_date": first_group_date(load_groups(session, filter_expr=expanded_filter, limit=1)),
             "page_size": HOME_PAGE_SIZE,
             "map_tile_provider": settings.map_tile_provider,
         },

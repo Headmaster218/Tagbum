@@ -68,7 +68,27 @@ def ensure_runtime_schema() -> None:
     if engine is None:
         return
     inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    if "tag_relations" not in table_names:
+        Base.metadata.create_all(bind=engine)
+        inspector = inspect(engine)
     resource_columns = {column["name"] for column in inspector.get_columns("asset_resources")}
     if "metadata_json" not in resource_columns:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE asset_resources ADD COLUMN metadata_json TEXT"))
+    group_columns = {column["name"] for column in inspector.get_columns("asset_groups")}
+    if "tag_completed" not in group_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE asset_groups ADD COLUMN tag_completed BOOLEAN NOT NULL DEFAULT 0"))
+            connection.execute(
+                text(
+                    """
+                    UPDATE asset_groups
+                    SET tag_completed = 1
+                    WHERE EXISTS (
+                        SELECT 1 FROM asset_tags
+                        WHERE asset_tags.group_id = asset_groups.id
+                    )
+                    """
+                )
+            )

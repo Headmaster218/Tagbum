@@ -16,6 +16,7 @@ import {
   videoResource,
   worldToLonLat,
 } from "../core/shared.js";
+import { tagChainsHtml } from "./tag-graph.js";
 
 const pickerState = {
   lat: 30,
@@ -27,7 +28,7 @@ const pickerState = {
   startCenter: null,
 };
 
-const PREVIEW_PANEL_DEFAULT_ORDER = ["resources", "overview", "location", "metadata"];
+const PREVIEW_PANEL_DEFAULT_ORDER = ["resources", "tags", "overview", "location", "metadata"];
 const PREVIEW_PANEL_ORDER_KEY = "tagbum.previewPanelOrder";
 const PREVIEW_TEXT = {
   "zh-CN": {
@@ -69,6 +70,7 @@ const PREVIEW_TEXT = {
     saved: "已保存。",
     tags: "标签",
     resourceCount: "资源数",
+    tagRelations: "标签关系",
     groupKey: "统一资源符",
     folder: "目录",
     root: "相册根目录",
@@ -114,6 +116,7 @@ const PREVIEW_TEXT = {
     saved: "Saved.",
     tags: "Tags",
     resourceCount: "Resources",
+    tagRelations: "Tag Relations",
     groupKey: "Group Key",
     folder: "Folder",
     root: "Root",
@@ -210,6 +213,7 @@ const PREVIEW_ZH = {
   saved: "\u5df2\u4fdd\u5b58\u3002",
   tags: "\u6807\u7b7e",
   resourceCount: "\u8d44\u6e90\u6570",
+  tagRelations: "\u6807\u7b7e\u5173\u7cfb",
   groupKey: "\u7edf\u4e00\u8d44\u6e90\u7b26",
   folder: "\u76ee\u5f55",
   root: "\u76f8\u518c\u6839\u76ee\u5f55",
@@ -261,9 +265,9 @@ export function duplicatePreviewIds(source) {
     .filter(Boolean);
 }
 
-async function getGroupDetails(groupId) {
+async function getGroupDetails(groupId, { force = false } = {}) {
   const key = Number(groupId);
-  if (groupCache.has(key) && groupCache.get(key).resources) return groupCache.get(key);
+  if (!force && groupCache.has(key) && groupCache.get(key).resources) return groupCache.get(key);
   const response = await fetch(`/api/groups/${key}`);
   const group = await response.json();
   groupCache.set(key, group);
@@ -627,6 +631,7 @@ function renderModalGroup(group) {
 
   title.textContent = group.display_name || t("untitled");
   tags.innerHTML = (group.tags || []).map((tag) => `<span class="chip">${escapeHtml(tag)}</span>`).join("");
+  renderPreviewTagPanel(group);
   renderMetadataSummary(group);
   renderGroupMetadata(group);
   renderResourceMetadata(group);
@@ -643,6 +648,23 @@ function panelSummaryHtml(key) {
         <button type="button" class="preview-panel-move" data-preview-panel-move="${key}" data-direction="1" title="${escapeHtml(t("moveDown"))}" aria-label="${escapeHtml(t("moveDown"))}">↓</button>
       </span>
     </summary>
+  `;
+}
+
+function renderPreviewTagPanel(group) {
+  const root = document.querySelector("[data-preview-tag-panel]");
+  if (!root) return;
+  const explicit = (group.tags || [])
+    .map((tag) => `<span class="chip explicit-tag">${escapeHtml(tag)}</span>`)
+    .join("") || `<span class="muted-text">暂无标签</span>`;
+  const inferred = (group.inferred_tags || [])
+    .map((tag) => `<span class="chip inferred-tag">${escapeHtml(tag)}</span>`)
+    .join("");
+  root.innerHTML = `
+    <div class="tag-cluster explicit-tags">${explicit}</div>
+    ${inferred ? `<div class="tag-cluster inferred-tags">${inferred}</div>` : ""}
+    <div class="tag-chain-list">${tagChainsHtml(group)}</div>
+    <button type="button" data-open-tag-graph>${escapeHtml(t("tagRelations"))}</button>
   `;
 }
 
@@ -714,6 +736,11 @@ function ensureModal() {
           <div class="resource-list"></div>
           <div class="preview-meta-resources" data-preview-resource-meta></div>
         </div>
+      </details>
+
+      <details class="preview-panel" data-preview-panel="tags">
+        ${panelSummaryHtmlFixed("tags")}
+        <div class="preview-meta-section" data-preview-tag-panel></div>
       </details>
 
       <details class="preview-panel" data-preview-panel="overview">
@@ -1133,4 +1160,10 @@ export function initPreviewModule() {
   });
 
   window.addEventListener("tagbum:languagechange", rebuildPreviewModalForLocale);
+  window.addEventListener("tagbum:taggraphchange", async () => {
+    if (!previewState.group) return;
+    const refreshed = await getGroupDetails(previewState.group.id, { force: true });
+    previewState.group = refreshed;
+    renderModalGroup(refreshed);
+  });
 }

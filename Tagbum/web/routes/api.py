@@ -27,6 +27,7 @@ from ..services.gallery import (
     resolve_offset_for_date,
 )
 from ..services.media import playable_video_path, range_file_response
+from ..services.tag_graph import add_relation, expand_filter_expression, graph_snapshot, remove_relation
 
 
 router = APIRouter()
@@ -43,9 +44,10 @@ def api_groups(
     offset: int = 0,
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    normalized = normalize_filter_expression(filter_expr, tag=tag, kind=kind)
+    tag_graph = graph_snapshot(session)
+    normalized = expand_filter_expression(session, normalize_filter_expression(filter_expr, tag=tag, kind=kind))
     return [
-        group_payload(group, include_resources=include_resources)
+        group_payload(group, include_resources=include_resources, tag_graph=tag_graph)
         for group in load_groups(session, tag_status=tag_status, filter_expr=normalized, limit=limit, offset=offset)
     ]
 
@@ -60,7 +62,7 @@ def api_position(
     tag_status: str | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    normalized = normalize_filter_expression(filter_expr, tag=tag, kind=kind)
+    normalized = expand_filter_expression(session, normalize_filter_expression(filter_expr, tag=tag, kind=kind))
     total = count_groups(session, tag_status=tag_status, filter_expr=normalized)
     if total == 0:
         return {"offset": 0, "total": 0}
@@ -81,7 +83,7 @@ def api_dates(
     tag_status: str | None = None,
     session: Session = Depends(get_session),
 ) -> dict:
-    normalized = normalize_filter_expression(filter_expr, tag=tag, kind=kind)
+    normalized = expand_filter_expression(session, normalize_filter_expression(filter_expr, tag=tag, kind=kind))
     counts = date_counts(session, tag_status=tag_status, filter_expr=normalized)
     if not counts:
         return {"dates": [], "min_date": None, "max_date": None}
@@ -136,12 +138,13 @@ def api_map_cell(
     if bounds is None:
         return []
     selected = [group for group in groups if map_cell_position(group, bounds=bounds, rows=rows, cols=cols) == (row, col)]
-    return [group_payload(group, include_resources=True) for group in selected]
+    tag_graph = graph_snapshot(session)
+    return [group_payload(group, include_resources=True, tag_graph=tag_graph) for group in selected]
 
 
 @router.get("/api/groups/{group_id}")
 def api_group(group_id: int, session: Session = Depends(get_session)) -> dict:
-    return group_payload(get_group(session, group_id), include_resources=True)
+    return group_payload(get_group(session, group_id), include_resources=True, tag_graph=graph_snapshot(session))
 
 
 @router.patch("/api/groups/{group_id}/metadata")
@@ -187,7 +190,7 @@ def update_group_metadata(group_id: int, payload: dict = Body(...), session: Ses
 
     session.commit()
     session.refresh(group)
-    return group_payload(get_group(session, group_id), include_resources=True)
+    return group_payload(get_group(session, group_id), include_resources=True, tag_graph=graph_snapshot(session))
 
 
 @router.post("/api/groups/{group_id}/tags")
@@ -205,7 +208,7 @@ def add_tag(group_id: int, name: str = Form(...), session: Session = Depends(get
     if exists is None:
         session.add(AssetTag(group_id=group.id, tag_id=tag.id, source="manual"))
     session.commit()
-    return group_payload(get_group(session, group_id))
+    return group_payload(get_group(session, group_id), tag_graph=graph_snapshot(session))
 
 
 @router.delete("/api/groups/{group_id}/tags/{tag_name}")
@@ -215,12 +218,36 @@ def remove_tag(group_id: int, tag_name: str, session: Session = Depends(get_sess
     if tag is not None:
         session.execute(delete(AssetTag).where(AssetTag.group_id == group.id, AssetTag.tag_id == tag.id))
         session.commit()
-    return group_payload(get_group(session, group_id))
+    return group_payload(get_group(session, group_id), tag_graph=graph_snapshot(session))
+
+
+@router.post("/api/groups/{group_id}/tag-complete")
+def complete_group_tags(group_id: int, payload: dict | None = Body(default=None), session: Session = Depends(get_session)) -> dict:
+    group = get_group(session, group_id)
+    group.tag_completed = bool((payload or {}).get("completed", True))
+    session.commit()
+    session.refresh(group)
+    return group_payload(get_group(session, group_id), include_resources=True, tag_graph=graph_snapshot(session))
 
 
 @router.get("/api/tags")
 def api_tags(session: Session = Depends(get_session)) -> list[dict]:
     return [{"name": name, "count": count} for name, count in load_tags(session)]
+
+
+@router.get("/api/tag-graph")
+def api_tag_graph(session: Session = Depends(get_session)) -> dict:
+    return graph_snapshot(session)
+
+
+@router.post("/api/tag-relations")
+def api_add_tag_relation(payload: dict = Body(...), session: Session = Depends(get_session)) -> dict:
+    return add_relation(session, payload.get("parent", ""), payload.get("child", ""))
+
+
+@router.delete("/api/tag-relations")
+def api_remove_tag_relation(parent: str, child: str, session: Session = Depends(get_session)) -> dict:
+    return remove_relation(session, parent, child)
 
 
 @router.get("/thumbs/{group_id}.jpg")

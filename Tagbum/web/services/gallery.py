@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 from ...media import WEB_IMAGE_EXTENSIONS
 from ...models import AssetGroup, AssetResource, AssetTag, Tag
 from .media import is_web_native_video
+from .tag_graph import inferred_for_tags
 
 
 def fallback_taken_at_expr():
@@ -84,6 +85,7 @@ def normalize_filter_node(node: dict | None) -> dict:
             "kind": "condition",
             "field": field,
             "value": value,
+            "include_descendants": node.get("include_descendants", True),
             "negate": bool(node.get("negate")),
         }
     items = [normalize_filter_node(item) for item in node.get("items", []) if isinstance(item, dict)]
@@ -123,7 +125,11 @@ def build_filter_clause(node: dict):
         field = node.get("field")
         value = node.get("value")
         if field == "tag":
-            clause = AssetGroup.tags.any(AssetTag.tag.has(Tag.name == value))
+            values = node.get("expanded_values")
+            if values:
+                clause = AssetGroup.tags.any(AssetTag.tag.has(Tag.name.in_(values)))
+            else:
+                clause = AssetGroup.tags.any(AssetTag.tag.has(Tag.name == value))
         elif field == "resource":
             clause = resource_condition(value)
         else:
@@ -166,9 +172,9 @@ def group_query(
     if tag:
         query = query.join(AssetTag).join(Tag).where(Tag.name == tag.strip().lower())
     if tag_status == "tagged":
-        query = query.where(AssetGroup.tags.any())
+        query = query.where(AssetGroup.tag_completed.is_(True))
     elif tag_status == "untagged":
-        query = query.where(~AssetGroup.tags.any())
+        query = query.where(AssetGroup.tag_completed.is_(False))
     query = apply_kind_filter(query, kind)
     query = apply_filter_expression(query, filter_expr)
     return query.order_by(effective_taken_at.desc().nullslast(), AssetGroup.id.desc())
@@ -197,7 +203,7 @@ def get_group(session: Session, group_id: int) -> AssetGroup:
 
 def load_tags(session: Session) -> list[tuple[str, int]]:
     query = select(Tag.name, func.count(AssetTag.id)).join(AssetTag).group_by(Tag.id).order_by(Tag.name)
-    return list(session.execute(query))
+    return [(name, count) for name, count in session.execute(query)]
 
 
 def load_kind_counts(session: Session, tag: str | None = None) -> list[tuple[str, int]]:
@@ -221,9 +227,9 @@ def count_groups(
     if tag:
         query = query.join(AssetTag).join(Tag).where(Tag.name == tag.strip().lower())
     if tag_status == "tagged":
-        query = query.where(AssetGroup.tags.any())
+        query = query.where(AssetGroup.tag_completed.is_(True))
     elif tag_status == "untagged":
-        query = query.where(~AssetGroup.tags.any())
+        query = query.where(AssetGroup.tag_completed.is_(False))
     query = apply_kind_filter(query, kind)
     if filter_expr and filter_expr.get("items"):
         query = query.where(build_filter_clause(filter_expr))
@@ -365,9 +371,9 @@ def date_counts(
     if tag:
         query = query.join(AssetTag).join(Tag).where(Tag.name == tag.strip().lower())
     if tag_status == "tagged":
-        query = query.where(AssetGroup.tags.any())
+        query = query.where(AssetGroup.tag_completed.is_(True))
     elif tag_status == "untagged":
-        query = query.where(~AssetGroup.tags.any())
+        query = query.where(AssetGroup.tag_completed.is_(False))
     query = apply_kind_filter(query, kind)
     if filter_expr and filter_expr.get("items"):
         query = query.where(build_filter_clause(filter_expr))
@@ -467,9 +473,11 @@ def parse_resource_metadata(resource: AssetResource) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def group_payload(group: AssetGroup, include_resources: bool = False) -> dict:
+def group_payload(group: AssetGroup, include_resources: bool = False, tag_graph: dict | None = None) -> dict:
     resource_kinds = sorted({payload_kind(resource, group) for resource in group.resources}, key=kind_sort_key)
     taken_at = group_taken_at(group)
+    explicit_tags = sorted(asset_tag.tag.name for asset_tag in group.tags)
+    inferred_tags, tag_paths = inferred_for_tags(tag_graph, explicit_tags) if tag_graph else ([], [])
     payload = {
         "id": group.id,
         "group_key": group.group_key,
@@ -480,7 +488,10 @@ def group_payload(group: AssetGroup, include_resources: bool = False) -> dict:
         "source_root": group.source_root,
         "source_dir": group.source_dir,
         "thumbnail_url": f"/thumbs/{group.id}.jpg" if group.thumbnail_path else None,
-        "tags": sorted(asset_tag.tag.name for asset_tag in group.tags),
+        "tags": explicit_tags,
+        "inferred_tags": inferred_tags,
+        "tag_paths": tag_paths,
+        "tag_completed": bool(group.tag_completed),
         "resource_kinds": resource_kinds,
     }
     if include_resources:
